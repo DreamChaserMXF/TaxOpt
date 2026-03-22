@@ -11,7 +11,7 @@
 | --------------------------------- | --------------------------------------------------------------------- |
 | `main.py`                         | `TaxConfig`、`load_tax_config_from_json`、`validate_tax_config`、计税与 CLI |
 | `config.json`                     | **默认**计税参数（与 `main.py` 同目录；未指定 `-c` 时使用）                              |
-| `config.example.json`             | 配置模板，可复制为 `config.json` 或自定义路径后 `-c` 指定                               |
+| `config.example.json`             | 配置模板（当前示例为 **浙江社保 + 杭州市区公积金** 常见 2025 口径，见下文说明）；可复制为 `config.json` 或 `-c` 指定   |
 
 
 ## 环境
@@ -25,6 +25,18 @@
 - **规则**：根节点为 JSON 对象；**键名须与 `TaxConfig` 字段完全一致**；**不允许未知字段**（拼写错误会直接报错）；**未写的键**使用程序内 `TaxConfig` 的默认值，并在 **stderr** 输出**警告**列出缺省字段名（建议复制 `config.example.json` 填全）。
 - 加载成功后会在 **stderr** 打印一行 `已加载配置：<绝对路径>`，便于确认使用的文件。
 - 个人敏感参数可放在未入库的 `config.local.json`（见 `.gitignore`），运行时 `-c config.local.json`。
+
+### 政策时间窗口（社保 vs 公积金）
+
+- **企业职工基本养老保险等（浙江省统一缴费基数）**：上下限多按 **自然年** 调整，例如 2025 年度标准常见表述为 **2025-01-01 起** 执行（以浙人社发〔2025〕52 号等正式文件为准）。
+- **杭州住房公积金**：缴存基数上下限多按 **住房公积金年度** 调整，常见为 **当年 7 月 1 日起至次年 6 月 30 日**（以杭州住房公积金管理中心当年通知为准）。
+- 因此存在 **自然年与公积金年度不一致**：同一年内可能前半段与后半段适用不同年度的公积金基数文件，而社保基数已按新年执行。本工具对全年只用 **一组固定基数** 近似，**跨年或跨 7 月调整节点**时请以单位实际申报为准，或自行拆分时段（本程序未建模分段基数）。
+
+### 示例配置数值来源（`config.example.json` / 默认 `config.json`）
+
+- **社保基数**：浙江省 2025 年企业职工社会保险缴费基数 **下限 4986 元/月、上限 25299 元/月**（与杭州执行省定标准一致）；个人比例按养老 8%、医疗 2%、失业 0.5% 填写（简化模型，以参保地最新比例为准）。
+- **公积金基数**：**杭州市区** 2025 年度常见 **下限 2490 元/月、上限 40694 元/月**；**桐庐、建德、淳安** 下限多为 **2260** 元/月，若适用请改 `housing_fund_base_min`。
+- **公积金比例**：`housing_fund_rate` 取 **0.12** 仅作演示；单位可在 **5%–12%** 区间内选择，请按实际修改。
 
 ### 字段说明与示例（带注释）
 
@@ -51,18 +63,18 @@
 | `annual_additional_deduction` | **全年**一次性附加扣除（如个人养老金。累计预扣从首月全额扣） |
 
 
-**示例（与仓库内 `config.example.json` 一致，数值仅作演示）：**
+**示例（与仓库内 `config.example.json` 一致，浙江社保 + 杭州市区公积金 2025 常见口径）：**
 
 ```json
 {
   "basic_deduction": 60000,
-  "social_security_base_min": 0,
-  "social_security_base_limit": 33891,
+  "social_security_base_min": 4986,
+  "social_security_base_limit": 25299,
   "pension_rate": 0.08,
   "medical_rate": 0.02,
   "unemployment_rate": 0.005,
-  "housing_fund_base_min": 0,
-  "housing_fund_base_limit": 33891,
+  "housing_fund_base_min": 2490,
+  "housing_fund_base_limit": 40694,
   "housing_fund_rate": 0.12,
   "children_education": 0,
   "continuing_education": 0,
