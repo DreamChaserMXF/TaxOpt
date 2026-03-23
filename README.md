@@ -1,6 +1,6 @@
 # TaxOpt
 
-**个人所得税税筹与测算（示意工具）**：给定**全年名义收入**（12 个月工资 + 年终奖），在「月薪全年一致、年终奖单独计税、年终奖不计五险一金」等假设下，可**遍历**搜索使**全年到手**（扣个税与个人五险一金）最高的拆分，或**固定**月薪/年终奖之一后推算全年到手。
+**个人所得税税筹与测算（示意工具）**：给定**全年名义收入**（12 个月工资 + 年终奖），在「月薪全年一致、年终奖单独计税、年终奖不计五险一金」等假设下，可**遍历**搜索使**全年到手**最高的拆分（`optimize` 下由 `--objective` 选择优化**现金**或**现金+公积金**），或**固定**月薪/年终奖之一后推算全年到手。
 
 > 税率表与政策时点以代码为准；**不构成税务或法律建议**。
 
@@ -36,7 +36,7 @@
 
 - **社保基数**：浙江省 2025 年企业职工社会保险缴费基数 **下限 4986 元/月、上限 25299 元/月**（与杭州执行省定标准一致）；个人比例按养老 8%、医疗 2%、失业 0.5% 填写（简化模型，以参保地最新比例为准）。
 - **公积金基数**：**杭州市区** 2025 年度常见 **下限 2490 元/月、上限 40694 元/月**；**桐庐、建德、淳安** 下限多为 **2260** 元/月，若适用请改 `housing_fund_base_min`。
-- **公积金比例**：`housing_fund_rate` 取 **0.12** 仅作演示；单位可在 **5%–12%** 区间内选择，请按实际修改。
+- **公积金比例**：`housing_fund_employee_rate` / `housing_fund_employer_rate` 取 **0.12** 仅作演示；个人比例单位多在 **5%–12%** 内选择，公司比例可与个人不同，请按实际修改。若 JSON 未写 `housing_fund_employer_rate`，默认与个人比例相同。
 
 ### 字段说明与示例（带注释）
 
@@ -53,7 +53,8 @@
 | `unemployment_rate`           | 失业保险个人比例                         |
 | `housing_fund_base_min`       | 公积金缴费基数下限（月）                     |
 | `housing_fund_base_limit`     | 公积金缴费基数上限（月）                     |
-| `housing_fund_rate`           | 公积金个人比例                          |
+| `housing_fund_employee_rate`  | 公积金**个人**缴存比例                    |
+| `housing_fund_employer_rate`| 公积金**公司**缴存比例；省略时默认等于个人比例       |
 | `children_education`          | 子女教育专项附加扣除（**月**）                |
 | `continuing_education`        | 继续教育专项附加扣除（**月**）                |
 | `serious_illness`             | 大病医疗等（**月**，按你折算的月度额度）           |
@@ -75,7 +76,8 @@
   "unemployment_rate": 0.005,
   "housing_fund_base_min": 2490,
   "housing_fund_base_limit": 40694,
-  "housing_fund_rate": 0.12,
+  "housing_fund_employee_rate": 0.12,
+  "housing_fund_employer_rate": 0.12,
   "children_education": 0,
   "continuing_education": 0,
   "serious_illness": 0,
@@ -97,6 +99,8 @@ python main.py -c config.json optimize -t 500000
 
 # 税筹：遍历月薪/年终奖（默认；未传 -t 时使用代码内默认全年收入）
 python main.py optimize [--total 全年收入]
+# 税筹目标为「现金+全年公积金」最大（默认 --objective cash 为纯现金到手最大）
+python main.py optimize -t 500000 --objective cash_plus_provident_fund
 
 # 已知全年收入 + 月薪 → 反推年终奖并算全年到手
 python main.py salary --total 全年收入 --monthly 月薪
