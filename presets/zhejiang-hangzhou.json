@@ -12,8 +12,8 @@
   "children_education": 0,
   "continuing_education": 0,
   "serious_illness": 0,
-  "housing_loan_interest": 1000,
+  "housing_loan_interest": 0,
   "housing_rent": 0,
   "elderly_support": 0,
-  "annual_additional_deduction": 12000
+  "annual_additional_deduction": 0
 }

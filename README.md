@@ -12,6 +12,7 @@
 | `main.py`                         | `TaxConfig`、`load_tax_config_from_json`、`validate_tax_config`、计税与 CLI |
 | `config.json`                     | **默认**计税参数（与 `main.py` 同目录；未指定 `-c` 时使用）                              |
 | `config.example.json`             | 配置模板（当前示例为 **浙江社保 + 杭州市区公积金** 常见 2025 口径，见下文说明）；可复制为 `config.json` 或 `-c` 指定   |
+| `presets/`                        | **直辖市 + 一二线城市** 等 **42** 套预设 JSON，命名 **`省拼音-市拼音`**（默认市区口径）；索引见 `presets/README.md`        |
 
 
 ## 环境
@@ -20,8 +21,9 @@
 
 ## 配置文件（JSON）
 
-- **默认路径**：与 `main.py` 同目录下的 `**config.json`**。未传 `-c` 时自动读取该文件。
+- **默认路径**：与 `main.py` 同目录下的 `**config.json`**。未传 `-c` 且未传 `--preset` 时自动读取该文件。
 - **自定义路径**：`python main.py -c /path/to/my.json ...` 或 `--config`。
+- **城市预设**：`python main.py --preset zhejiang-hangzhou ...` 加载 `presets/zhejiang-hangzhou.json`（可省略 `.json`）。`python main.py --list-presets` 列出全部预设名。若**同时**指定 `-c` 与 `--preset`，**仅以 `-c` 为准**（stderr 会提示警告）。杭州区县公积金见 `zhejiang-hangzhou-counties`。
 - **规则**：根节点为 JSON 对象；**键名须与 `TaxConfig` 字段完全一致**；**不允许未知字段**（拼写错误会直接报错）；**未写的键**使用程序内 `TaxConfig` 的默认值，并在 **stderr** 输出**警告**列出缺省字段名（建议复制 `config.example.json` 填全）。
 - 加载成功后会在 **stderr** 打印一行 `已加载配置：<绝对路径>`，便于确认使用的文件。
 - 个人敏感参数可放在未入库的 `config.local.json`（见 `.gitignore`），运行时 `-c config.local.json`。
@@ -96,6 +98,10 @@
 ```bash
 # 指定配置文件（可选；省略则使用程序目录下 config.json）
 python main.py -c config.json optimize -t 500000
+
+# 按城市预设（文件名规则：省-市，见 presets/README.md）
+python main.py --list-presets
+python main.py --preset jiangsu-suzhou both -m 20000 -b 80000
 
 # 税筹：遍历月薪/年终奖（默认；未传 -t 时使用代码内默认全年收入）
 python main.py optimize [--total 全年收入]

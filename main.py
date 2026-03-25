@@ -5,8 +5,9 @@
 可选：将个人与公司公积金按月缴存合计计入「广义到手」；个人/公司缴存比例可分别配置。
 optimize 模式的优化目标由命令行 `--objective` 指定（现金最大或现金+公积金最大）。
 
-命令行：python main.py [-c 配置文件] [optimize|salary|bonus|both] ...
-未指定 -c 时读取与 main.py 同目录下的 config.json。
+命令行：python main.py [-c 配置文件 | --preset 省-市] [optimize|salary|bonus|both] ...
+未指定 -c 且未指定 --preset 时，读取与 main.py 同目录下的 config.json。
+预设位于 presets/ 目录，命名：省拼音-市拼音（默认各城「市区」主流口径，见 presets/README.md）。
 """
 
 import argparse
@@ -45,6 +46,7 @@ class TaxConfig:
 
 
 DEFAULT_CONFIG_FILENAME = "config.json"
+PRESETS_DIR = Path(__file__).resolve().parent / "presets"
 
 
 def load_tax_config_from_json(path: Union[str, Path]) -> TaxConfig:
@@ -506,6 +508,23 @@ def _default_config_path() -> Path:
     return Path(__file__).resolve().parent / DEFAULT_CONFIG_FILENAME
 
 
+def _resolve_preset_config_path(slug: str) -> Path:
+    stem = slug.strip()
+    if stem.endswith(".json"):
+        stem = stem[: -len(".json")]
+    return (PRESETS_DIR / f"{stem}.json").resolve()
+
+
+def list_presets() -> None:
+    """打印 presets 目录下可用预设名（不含 .json），一行一个。"""
+    if not PRESETS_DIR.is_dir():
+        print("presets 目录不存在。", file=sys.stderr)
+        return
+    names = sorted(p.stem for p in PRESETS_DIR.glob("*.json"))
+    for name in names:
+        print(name)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
@@ -555,7 +574,20 @@ def main() -> None:
         "-c",
         type=str,
         default=None,
-        help=f"TaxConfig 的 JSON 文件路径；默认使用程序目录下的 {DEFAULT_CONFIG_FILENAME}",
+        help=f"TaxConfig 的 JSON 文件路径；与 --preset 同时指定时以本选项为准；"
+        f"均未指定时使用程序目录下的 {DEFAULT_CONFIG_FILENAME}",
+    )
+    parser.add_argument(
+        "--preset",
+        type=str,
+        default=None,
+        metavar="省-市",
+        help="使用 presets/<省-市>.json（可省略 .json）；见 presets/README.md。与 -c 同时指定时忽略本项",
+    )
+    parser.add_argument(
+        "--list-presets",
+        action="store_true",
+        help="列出 presets 下可用预设文件名并退出",
     )
     parser.add_argument(
         "--objective",
@@ -568,7 +600,28 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    config_path = Path(args.config).expanduser().resolve() if args.config else _default_config_path()
+    if args.list_presets:
+        list_presets()
+        return
+
+    if args.config and args.preset:
+        print(
+            "警告：同时指定 -c 与 --preset，将仅使用 -c 指定的配置文件。",
+            file=sys.stderr,
+        )
+
+    if args.config:
+        config_path = Path(args.config).expanduser().resolve()
+    elif args.preset:
+        config_path = _resolve_preset_config_path(args.preset)
+        if not config_path.is_file():
+            print(f"未知预设：{args.preset}", file=sys.stderr)
+            print(f"预期文件不存在：{config_path}", file=sys.stderr)
+            print("可用预设：python main.py --list-presets", file=sys.stderr)
+            return
+    else:
+        config_path = _default_config_path()
+
     default_total = 2_010_000
 
     try:
