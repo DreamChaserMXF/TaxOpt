@@ -3,3 +3,6 @@ config.local.json
 
 __pycache__/
 *.pyc
+
+# Claude Code 本机私有设置
+.claude/settings.local.json
