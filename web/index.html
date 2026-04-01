@@ -271,9 +271,9 @@
               <td class="py-1.5 pr-3" x-text="row.month + '月'"></td>
               <td class="py-1.5 px-3 text-right" x-text="fmt(row.salary)"></td>
               <td class="py-1.5 px-3 text-right text-orange-500"
-                x-text="fmt(row.social_security.total - row.social_security.housing_fund_employee)"></td>
+                x-text="fmt(row.insurance.total)"></td>
               <td class="py-1.5 px-3 text-right text-blue-500"
-                x-text="fmt(row.social_security.housing_fund_employee + row.social_security.housing_fund_employer)"></td>
+                x-text="fmt(row.housing_fund.employee + row.housing_fund.employer)"></td>
               <td class="py-1.5 px-3 text-right text-red-500" x-text="fmt(row.tax)"></td>
               <td class="py-1.5 pl-3 text-right font-semibold text-green-600"
                 x-text="fmt(row.after_tax_salary)"></td>
@@ -424,7 +424,7 @@ function taxapp() {
           color: 'text-red-500',
         },
         {
-          label: '个人社保合计',
+          label: '个人三险一金',
           value: '¥ ' + this.fmt(r.annual_social_security),
           sub: '占收入 ' + this.fmtPct(r.effective_social_security_rate),
           color: 'text-orange-500',

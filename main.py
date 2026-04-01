@@ -198,37 +198,34 @@ class TaxCalculator:
     def annual_additional_total(self) -> float:
         return self._monthly_special_additional() * 12 + self.c.annual_additional_deduction
 
-    def monthly_social_security(self, monthly_salary: float) -> Dict[str, float]:
-        s = monthly_salary
-        social = s
+    def monthly_insurance(self, monthly_salary: float) -> Dict[str, float]:
+        """三险（养老、医疗、失业）个人月度缴纳明细及合计。"""
+        base = monthly_salary
         if self.c.social_security_base_limit > 0:
-            social = min(social, self.c.social_security_base_limit)
+            base = min(base, self.c.social_security_base_limit)
         if self.c.social_security_base_min > 0:
-            social = max(social, self.c.social_security_base_min)
-
-        housing = s
-        if self.c.housing_fund_base_limit > 0:
-            housing = min(housing, self.c.housing_fund_base_limit)
-        if self.c.housing_fund_base_min > 0:
-            housing = max(housing, self.c.housing_fund_base_min)
-
-        pension = social * self.c.pension_rate
-        medical = social * self.c.medical_rate
-        unemployment = social * self.c.unemployment_rate
-        fund_e = housing * self.c.housing_fund_employee_rate
-        fund_u = housing * self.c.housing_fund_employer_rate
-        total = pension + medical + unemployment + fund_e
+            base = max(base, self.c.social_security_base_min)
+        pension = base * self.c.pension_rate
+        medical = base * self.c.medical_rate
+        unemployment = base * self.c.unemployment_rate
         return {
             "pension": pension,
             "medical": medical,
             "unemployment": unemployment,
-            "housing_fund_employee": fund_e,
-            "housing_fund_employer": fund_u,
-            "total": total,
+            "total": pension + medical + unemployment,
         }
 
-    def annual_social_security_total(self, monthly_salary: float) -> float:
-        return self.monthly_social_security(monthly_salary)["total"] * 12
+    def monthly_housing_fund(self, monthly_salary: float) -> Dict[str, float]:
+        """公积金月度缴存：个人与单位部分。"""
+        base = monthly_salary
+        if self.c.housing_fund_base_limit > 0:
+            base = min(base, self.c.housing_fund_base_limit)
+        if self.c.housing_fund_base_min > 0:
+            base = max(base, self.c.housing_fund_base_min)
+        return {
+            "employee": base * self.c.housing_fund_employee_rate,
+            "employer": base * self.c.housing_fund_employer_rate,
+        }
 
 
 
@@ -237,28 +234,37 @@ class TaxCalculator:
             return 0.0
         return _progressive_tax(bonus, BONUS_BRACKETS_ANNUAL)
 
-    def total_tax_and_social_security(
+    def _calc_annual_tax(
         self, monthly_salary: float, bonus: float
-    ) -> Tuple[float, float, float, float, Dict[str, float]]:
+    ) -> Tuple[float, float, float, float, Dict[str, float], Dict[str, float]]:
         """
-        单月 monthly_social_security 只算一次。
-        返回 (综合所得年度个税, 年终奖个税, 全年个人五险一金, 全年个人+公司公积金, 单月五险一金分项)。
+        计算年度税额与缴纳金额，单月险费只算一次。
+        返回 (综合所得年税, 年终奖税, 年度个人三险一金合计, 年度公积金个人+公司合计,
+              月度三险分项, 月度公积金分项)。
         """
-        ss = self.monthly_social_security(monthly_salary)
-        annual_social_security = ss["total"] * 12
-        annual_pf = 12 * (ss["housing_fund_employee"] + ss["housing_fund_employer"])
-        annual_salary = monthly_salary * 12
-        additional = self.annual_additional_total()
-        taxable = annual_salary - self.c.basic_deduction - additional - annual_social_security
+        ins = self.monthly_insurance(monthly_salary)
+        hf = self.monthly_housing_fund(monthly_salary)
+        annual_personal_deduction = (ins["total"] + hf["employee"]) * 12  # 三险一金，用于税前扣除
+        annual_provident_fund_total = (hf["employee"] + hf["employer"]) * 12
+        taxable = (
+            monthly_salary * 12
+            - self.c.basic_deduction
+            - self.annual_additional_total()
+            - annual_personal_deduction
+        )
         comprehensive_tax = _progressive_tax(taxable, COMPREHENSIVE_BRACKETS)
-        b_tax = self.bonus_tax(bonus)
-        return comprehensive_tax, b_tax, annual_social_security, annual_pf, ss
+        bonus_tax = self.bonus_tax(bonus)
+        return comprehensive_tax, bonus_tax, annual_personal_deduction, annual_provident_fund_total, ins, hf
 
     def monthly_details(
-        self, monthly_salary: float, ss_monthly: Optional[Dict[str, float]] = None
+        self,
+        monthly_salary: float,
+        ins_monthly: Optional[Dict[str, float]] = None,
+        hf_monthly: Optional[Dict[str, float]] = None,
     ) -> List[Dict[str, Any]]:
-        ss = ss_monthly if ss_monthly is not None else self.monthly_social_security(monthly_salary)
-        ss_m = ss["total"]
+        ins = ins_monthly if ins_monthly is not None else self.monthly_insurance(monthly_salary)
+        hf = hf_monthly if hf_monthly is not None else self.monthly_housing_fund(monthly_salary)
+        monthly_personal_deduction = ins["total"] + hf["employee"]  # 三险一金个人月度合计
         add_m = self._monthly_special_additional()
         basic_m = self.c.basic_deduction / 12
         prev_cum_tax = 0.0
@@ -267,9 +273,9 @@ class TaxCalculator:
         for month in range(1, 13):
             cum_income = monthly_salary * month
             cum_basic = basic_m * month
-            cum_ss = ss_m * month
+            cum_deduction = monthly_personal_deduction * month
             cum_add = add_m * month + self.c.annual_additional_deduction
-            cum_taxable = cum_income - cum_basic - cum_ss - cum_add
+            cum_taxable = cum_income - cum_basic - cum_deduction - cum_add
             cum_tax = _progressive_tax(cum_taxable, COMPREHENSIVE_BRACKETS)
             month_tax = cum_tax - prev_cum_tax
             prev_cum_tax = cum_tax
@@ -277,14 +283,14 @@ class TaxCalculator:
                 {
                     "month": month,
                     "salary": monthly_salary,
-                    "social_security": ss,
+                    "insurance": ins,
+                    "housing_fund": hf,
                     "tax": month_tax,
-                    "after_tax_salary": monthly_salary - ss_m - month_tax,
-                    "after_tax_including_provident_fund": monthly_salary
-                    - ss_m
-                    - month_tax
-                    + ss["housing_fund_employee"]
-                    + ss["housing_fund_employer"],
+                    "after_tax_salary": monthly_salary - monthly_personal_deduction - month_tax,
+                    "after_tax_including_provident_fund": (
+                        monthly_salary - monthly_personal_deduction - month_tax
+                        + hf["employee"] + hf["employer"]
+                    ),
                     "cumulative_taxable_income": cum_taxable,
                     "cumulative_tax": cum_tax,
                 }
@@ -323,13 +329,13 @@ class TaxOptimizer:
             bonus = total_annual - m * 12
             if bonus < 0:
                 continue
-            comp_tax, b_tax, annual_ss, annual_pf, _ss = self.calc.total_tax_and_social_security(
-                m, bonus
+            comp_tax, bonus_tax, annual_personal_deduction, annual_provident_fund_total, _ins, _hf = (
+                self.calc._calc_annual_tax(m, bonus)
             )
-            tax = comp_tax + b_tax
-            net = total_annual - tax - annual_ss
-            salary_take = m * 12 - comp_tax - annual_ss
-            score = net + annual_pf if use_pf_objective else net
+            tax = comp_tax + bonus_tax
+            net = total_annual - tax - annual_personal_deduction
+            salary_take = m * 12 - comp_tax - annual_personal_deduction
+            score = net + annual_provident_fund_total if use_pf_objective else net
             if score > best_net or (score == best_net and tax < best_tax_at_net):
                 best_net = score
                 best_tax_at_net = tax
@@ -338,17 +344,17 @@ class TaxOptimizer:
                     "annual_salary": m * 12,
                     "bonus": bonus,
                     "comprehensive_annual_tax": comp_tax,
-                    "bonus_tax": b_tax,
+                    "bonus_tax": bonus_tax,
                     "total_tax": tax,
-                    "annual_social_security": annual_ss,
-                    "annual_insurance": annual_ss - _ss["housing_fund_employee"] * 12,
-                    "annual_housing_fund_employee": _ss["housing_fund_employee"] * 12,
-                    "annual_provident_fund": annual_pf,
+                    "annual_social_security": annual_personal_deduction,
+                    "annual_insurance": _ins["total"] * 12,
+                    "annual_housing_fund_employee": _hf["employee"] * 12,
+                    "annual_provident_fund": annual_provident_fund_total,
                     "salary_take_home": salary_take,
                     "net_take_home": net,
                     "effective_tax_rate": tax / total_annual if total_annual else 0.0,
-                    "effective_social_security_rate": annual_ss / total_annual if total_annual else 0.0,
-                    "effective_burden_rate": (tax + annual_ss) / total_annual if total_annual else 0.0,
+                    "effective_social_security_rate": annual_personal_deduction / total_annual if total_annual else 0.0,
+                    "effective_burden_rate": (tax + annual_personal_deduction) / total_annual if total_annual else 0.0,
                 }
 
         if not best:
@@ -356,7 +362,7 @@ class TaxOptimizer:
 
         enrich_result_with_provident_fund(best)
         b = best["bonus"]
-        best["monthly_details"] = self.calc.monthly_details(best["monthly_salary"])
+        best["monthly_details"] = self.calc.monthly_details(best["monthly_salary"], _ins, _hf)
         best["bonus_after_tax"] = b - best["bonus_tax"]
         return best
 
@@ -385,30 +391,30 @@ def result_from_salary_bonus_split(
             f"与全年收入 {total_annual:,.2f} 不符（允许误差 0.01 元）"
         )
 
-    comp_tax, b_tax, annual_ss, annual_pf, ss = calc.total_tax_and_social_security(
-        monthly_salary, bonus
+    comp_tax, bonus_tax, annual_personal_deduction, annual_provident_fund_total, ins, hf = (
+        calc._calc_annual_tax(monthly_salary, bonus)
     )
-    tax = comp_tax + b_tax
-    net = total_annual - tax - annual_ss
-    salary_take = monthly_salary * 12 - comp_tax - annual_ss
+    tax = comp_tax + bonus_tax
+    net = total_annual - tax - annual_personal_deduction
+    salary_take = monthly_salary * 12 - comp_tax - annual_personal_deduction
     out = {
         "monthly_salary": monthly_salary,
         "annual_salary": monthly_salary * 12,
         "bonus": bonus,
         "comprehensive_annual_tax": comp_tax,
-        "bonus_tax": b_tax,
+        "bonus_tax": bonus_tax,
         "total_tax": tax,
-        "annual_social_security": annual_ss,
-        "annual_insurance": annual_ss - ss["housing_fund_employee"] * 12,
-        "annual_housing_fund_employee": ss["housing_fund_employee"] * 12,
-        "annual_provident_fund": annual_pf,
+        "annual_social_security": annual_personal_deduction,
+        "annual_insurance": ins["total"] * 12,
+        "annual_housing_fund_employee": hf["employee"] * 12,
+        "annual_provident_fund": annual_provident_fund_total,
         "salary_take_home": salary_take,
         "net_take_home": net,
         "effective_tax_rate": tax / total_annual if total_annual else 0.0,
-        "effective_social_security_rate": annual_ss / total_annual if total_annual else 0.0,
-        "effective_burden_rate": (tax + annual_ss) / total_annual if total_annual else 0.0,
-        "bonus_after_tax": bonus - b_tax,
-        "monthly_details": calc.monthly_details(monthly_salary, ss),
+        "effective_social_security_rate": annual_personal_deduction / total_annual if total_annual else 0.0,
+        "effective_burden_rate": (tax + annual_personal_deduction) / total_annual if total_annual else 0.0,
+        "bonus_after_tax": bonus - bonus_tax,
+        "monthly_details": calc.monthly_details(monthly_salary, ins, hf),
     }
     enrich_result_with_provident_fund(out)
     return out
@@ -488,11 +494,13 @@ def print_result(
     )
     print("-" * 100)
     for d in result.get("monthly_details", []):
-        ss = d["social_security"]
-        pf_pc = ss["housing_fund_employee"] + ss["housing_fund_employer"]
+        ins = d["insurance"]
+        hf = d["housing_fund"]
+        monthly_personal_deduction = ins["total"] + hf["employee"]  # 三险一金个人月度合计
+        pf_total = hf["employee"] + hf["employer"]  # 个人+单位公积金月度合计
         print(
             f"{d['month']:<6} {d['salary']:>6,.2f} "
-            f"{ss['total']:>14,.2f} {pf_pc:>14,.2f} "
+            f"{monthly_personal_deduction:>14,.2f} {pf_total:>14,.2f} "
             f"{d['tax']:>14,.2f} {d['after_tax_salary']:>12,.2f} "
             f"{d['after_tax_including_provident_fund']:>14,.2f}"
         )

@@ -106,67 +106,81 @@ class TestProgressiveTax:
 
 
 # ──────────────────────────────────────────────
-# 月度社保计算
+# 月度三险与公积金计算
 # ──────────────────────────────────────────────
 
-class TestMonthlySocialSecurity:
-    def test_zero_rates_all_zero(self, minimal_config):
+class TestMonthlyInsuranceAndHousingFund:
+    def test_zero_rates_insurance_all_zero(self, minimal_config):
         calc = TaxCalculator(minimal_config)
-        ss = calc.monthly_social_security(20000)
-        assert ss["pension"] == 0.0
-        assert ss["medical"] == 0.0
-        assert ss["unemployment"] == 0.0
-        assert ss["housing_fund_employee"] == 0.0
-        assert ss["housing_fund_employer"] == 0.0
-        assert ss["total"] == 0.0
+        ins = calc.monthly_insurance(20000)
+        assert ins["pension"] == 0.0
+        assert ins["medical"] == 0.0
+        assert ins["unemployment"] == 0.0
+        assert ins["total"] == 0.0
 
-    def test_full_rates_no_cap(self, full_config):
+    def test_zero_rates_housing_fund_all_zero(self, minimal_config):
+        calc = TaxCalculator(minimal_config)
+        hf = calc.monthly_housing_fund(20000)
+        assert hf["employee"] == 0.0
+        assert hf["employer"] == 0.0
+
+    def test_full_rates_insurance_no_cap(self, full_config):
         """
         月薪 20000，无基数上下限。
 
-        pension     = 20000 × 8%    = 1600
-        medical     = 20000 × 2%    = 400
-        unemployment= 20000 × 0.5%  = 100
-        fund_e      = 20000 × 12%   = 2400
-        fund_u      = 20000 × 12%   = 2400
-        total       = 1600+400+100+2400 = 4500（个人部分）
+        pension      = 20000 × 8%   = 1600
+        medical      = 20000 × 2%   = 400
+        unemployment = 20000 × 0.5% = 100
+        total        = 2100（纯三险）
         """
         calc = TaxCalculator(full_config)
-        ss = calc.monthly_social_security(20000)
-        assert ss["pension"] == pytest.approx(1600.0)
-        assert ss["medical"] == pytest.approx(400.0)
-        assert ss["unemployment"] == pytest.approx(100.0)
-        assert ss["housing_fund_employee"] == pytest.approx(2400.0)
-        assert ss["housing_fund_employer"] == pytest.approx(2400.0)
-        assert ss["total"] == pytest.approx(4500.0)
+        ins = calc.monthly_insurance(20000)
+        assert ins["pension"] == pytest.approx(1600.0)
+        assert ins["medical"] == pytest.approx(400.0)
+        assert ins["unemployment"] == pytest.approx(100.0)
+        assert ins["total"] == pytest.approx(2100.0)
 
-    def test_salary_above_ss_cap(self, hangzhou_config):
+    def test_full_rates_housing_fund_no_cap(self, full_config):
+        """
+        月薪 20000，无基数上下限。
+
+        employee = 20000 × 12% = 2400
+        employer = 20000 × 12% = 2400
+        """
+        calc = TaxCalculator(full_config)
+        hf = calc.monthly_housing_fund(20000)
+        assert hf["employee"] == pytest.approx(2400.0)
+        assert hf["employer"] == pytest.approx(2400.0)
+
+    def test_salary_above_cap(self, hangzhou_config):
         """
         月薪 50000 超出社保基数上限 25299，公积金基数上限 40694。
 
-        社保基数 clamp 到 25299：pension = 25299 × 8% = 2023.92
-        公积金基数 clamp 到 40694：fund_e = 40694 × 12% = 4883.28
+        三险基数 clamp 到 25299：pension = 25299 × 8% = 2023.92
+        公积金基数 clamp 到 40694：employee = 40694 × 12% = 4883.28
         """
         calc = TaxCalculator(hangzhou_config)
-        ss = calc.monthly_social_security(50000)
-        assert ss["pension"] == pytest.approx(25299 * 0.08)
-        assert ss["medical"] == pytest.approx(25299 * 0.02)
-        assert ss["unemployment"] == pytest.approx(25299 * 0.005)
-        assert ss["housing_fund_employee"] == pytest.approx(40694 * 0.12)
-        assert ss["housing_fund_employer"] == pytest.approx(40694 * 0.12)
+        ins = calc.monthly_insurance(50000)
+        hf = calc.monthly_housing_fund(50000)
+        assert ins["pension"] == pytest.approx(25299 * 0.08)
+        assert ins["medical"] == pytest.approx(25299 * 0.02)
+        assert ins["unemployment"] == pytest.approx(25299 * 0.005)
+        assert hf["employee"] == pytest.approx(40694 * 0.12)
+        assert hf["employer"] == pytest.approx(40694 * 0.12)
 
-    def test_salary_below_ss_min(self, hangzhou_config):
+    def test_salary_below_min(self, hangzhou_config):
         """
         月薪 1000 低于社保基数下限 4986，公积金基数下限 2490。
 
-        社保基数 clamp 到 4986，公积金 clamp 到 2490。
+        三险基数 clamp 到 4986，公积金基数 clamp 到 2490。
         """
         calc = TaxCalculator(hangzhou_config)
-        ss = calc.monthly_social_security(1000)
-        assert ss["pension"] == pytest.approx(4986 * 0.08)
-        assert ss["medical"] == pytest.approx(4986 * 0.02)
-        assert ss["housing_fund_employee"] == pytest.approx(2490 * 0.12)
-        assert ss["housing_fund_employer"] == pytest.approx(2490 * 0.12)
+        ins = calc.monthly_insurance(1000)
+        hf = calc.monthly_housing_fund(1000)
+        assert ins["pension"] == pytest.approx(4986 * 0.08)
+        assert ins["medical"] == pytest.approx(4986 * 0.02)
+        assert hf["employee"] == pytest.approx(2490 * 0.12)
+        assert hf["employer"] == pytest.approx(2490 * 0.12)
 
     def test_employer_rate_defaults_to_employee_rate(self):
         """housing_fund_employer_rate 未配置时应与个人比例相同。"""
@@ -175,9 +189,9 @@ class TestMonthlySocialSecurity:
             housing_fund_employer_rate=0.07,  # 模拟 JSON 未写时由 load 设置为相同值
         )
         calc = TaxCalculator(cfg)
-        ss = calc.monthly_social_security(10000)
-        assert ss["housing_fund_employee"] == pytest.approx(700.0)
-        assert ss["housing_fund_employer"] == pytest.approx(700.0)
+        hf = calc.monthly_housing_fund(10000)
+        assert hf["employee"] == pytest.approx(700.0)
+        assert hf["employer"] == pytest.approx(700.0)
 
 
 # ──────────────────────────────────────────────
@@ -451,16 +465,16 @@ class TestMonthlyDetails:
         assert m12["after_tax_salary"] == pytest.approx(17000.0)
 
     def test_annual_tax_sum_matches_result(self, full_config):
-        """月度税额之和应等于 total_tax_and_social_security 的综合所得税。"""
+        """月度税额之和应等于 _calc_annual_tax 的综合所得税。"""
         calc = TaxCalculator(full_config)
-        comp_tax, _, _, _, ss = calc.total_tax_and_social_security(20000, 0)
-        details = calc.monthly_details(20000, ss)
+        comp_tax, _, _, _, ins, hf = calc._calc_annual_tax(20000, 0)
+        details = calc.monthly_details(20000, ins, hf)
         assert sum(d["tax"] for d in details) == pytest.approx(comp_tax, abs=0.01)
 
     def test_monthly_detail_has_required_keys(self, full_config):
         """每行明细需含网页表格所需的全部字段。"""
         required = {
-            "month", "salary", "social_security", "tax",
+            "month", "salary", "insurance", "housing_fund", "tax",
             "after_tax_salary", "after_tax_including_provident_fund",
         }
         calc = TaxCalculator(full_config)
