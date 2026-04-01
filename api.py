@@ -114,6 +114,8 @@ class CalculateRequest(BaseModel):
             raise ValueError("bonus 模式需要 total")
         if self.mode == "both" and (self.monthly is None or self.bonus is None):
             raise ValueError("both 模式需要 monthly 和 bonus")
+        if self.mode == "optimize" and self.total is None:
+            raise ValueError("optimize 模式需要 total")
         return self
 
 
@@ -239,7 +241,7 @@ def calculate(req: CalculateRequest):
 
     try:
         if req.mode == "optimize":
-            total = req.total if req.total is not None else 2_010_000
+            total = req.total
             step = adaptive_search_step(total)
             result = TaxOptimizer(calc).optimize(total, step, objective=req.objective)
             if not result:
