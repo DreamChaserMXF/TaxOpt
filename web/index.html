@@ -205,8 +205,8 @@
       </div>
     </template>
 
-    <!-- 6 个核心指标卡片 -->
-    <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+    <!-- 8 个核心指标卡片 -->
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
       <template x-for="card in metricCards()" :key="card.label">
         <div class="card flex flex-col gap-1">
           <span class="text-xs text-gray-400" x-text="card.label"></span>
@@ -271,9 +271,9 @@
               <td class="py-1.5 pr-3" x-text="row.month + '月'"></td>
               <td class="py-1.5 px-3 text-right" x-text="fmt(row.salary)"></td>
               <td class="py-1.5 px-3 text-right text-orange-500"
-                x-text="fmt(row.social_security.total - row.social_security.housing_fund_employee)"></td>
+                x-text="fmt(row.insurance.total)"></td>
               <td class="py-1.5 px-3 text-right text-blue-500"
-                x-text="fmt(row.social_security.housing_fund_employee + row.social_security.housing_fund_employer)"></td>
+                x-text="fmt(row.housing_fund.employee + row.housing_fund.employer)"></td>
               <td class="py-1.5 px-3 text-right text-red-500" x-text="fmt(row.tax)"></td>
               <td class="py-1.5 pl-3 text-right font-semibold text-green-600"
                 x-text="fmt(row.after_tax_salary)"></td>
@@ -367,8 +367,7 @@ function taxapp() {
         const body = {
           mode: this.mode,
           objective: this.objective,
-          config: this.presetSlug ? undefined : { ...this.cfg },
-          preset_slug: this.presetSlug || undefined,
+          config: { ...this.cfg },
         };
         if (this.mode !== 'both') body.total = this.income.total;
         if (this.mode === 'salary' || this.mode === 'both') body.monthly = this.income.monthly;
@@ -404,31 +403,19 @@ function taxapp() {
     metricCards() {
       if (!this.result) return [];
       const r = this.result;
-      const total = (r.annual_salary || 0) + (r.bonus || 0);
+      const nominal = (r.annual_salary || 0) + (r.bonus || 0);
       return [
         {
-          label: '年度到手现金',
+          label: '名义收入',
+          value: '¥ ' + this.fmt(nominal),
+          sub: '月薪×12 + 年终奖',
+          color: 'text-gray-700',
+        },
+        {
+          label: '到手现金',
           value: '¥ ' + this.fmt(r.net_take_home),
-          sub: '税前名义 ¥' + this.fmt(total),
+          sub: '扣除个税与三险一金',
           color: 'text-green-600',
-        },
-        {
-          label: '现金 + 公积金',
-          value: '¥ ' + this.fmt(r.net_take_home_including_provident_fund),
-          sub: '含个人+单位公积金',
-          color: 'text-teal-600',
-        },
-        {
-          label: '全年纳税合计',
-          value: '¥ ' + this.fmt(r.total_tax),
-          sub: '税负率 ' + this.fmtPct(r.effective_tax_rate),
-          color: 'text-red-500',
-        },
-        {
-          label: '个人社保合计',
-          value: '¥ ' + this.fmt(r.annual_social_security),
-          sub: '占收入 ' + this.fmtPct(r.effective_social_security_rate),
-          color: 'text-orange-500',
         },
         {
           label: '公积金入账',
@@ -437,9 +424,33 @@ function taxapp() {
           color: 'text-blue-500',
         },
         {
-          label: '综合负担率',
+          label: '现金 + 公积金',
+          value: '¥ ' + this.fmt(r.net_take_home_including_provident_fund),
+          sub: '含个人+单位公积金',
+          color: 'text-teal-600',
+        },
+        {
+          label: '全年个税',
+          value: '¥ ' + this.fmt(r.total_tax),
+          sub: '综合所得 + 年终奖',
+          color: 'text-red-500',
+        },
+        {
+          label: '税率',
+          value: this.fmtPct(r.effective_tax_rate),
+          sub: '个税 / 名义收入',
+          color: 'text-red-400',
+        },
+        {
+          label: '个人社保',
+          value: '¥ ' + this.fmt(r.annual_insurance),
+          sub: '养老 + 医疗 + 失业',
+          color: 'text-orange-500',
+        },
+        {
+          label: '广义税率',
           value: this.fmtPct(r.effective_burden_rate),
-          sub: '（税 + 社保）/ 名义收入',
+          sub: '（个税 + 社保）/ 名义收入',
           color: 'text-purple-500',
         },
       ];
@@ -455,9 +466,9 @@ function taxapp() {
       this._pieChart = new Chart(pieEl, {
         type: 'doughnut',
         data: {
-          labels: ['到手现金', '个税', '个人社保', '个人公积金'],
+          labels: ['到手现金', '个税', '个人三险', '个人公积金'],
           datasets: [{
-            data: [r.net_take_home, r.total_tax, r.annual_social_security, r.annual_provident_fund / 2],
+            data: [r.net_take_home, r.total_tax, r.annual_insurance, r.annual_housing_fund_employee],
             backgroundColor: ['#22c55e', '#ef4444', '#f97316', '#3b82f6'],
             borderWidth: 0,
           }],

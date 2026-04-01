@@ -14,8 +14,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from main import (
     TaxConfig,
     TaxCalculator,
+    TaxOptimizer,
     _progressive_tax,
     enrich_result_with_provident_fund,
+    load_tax_config_from_json,
     result_from_salary_bonus_split,
     BONUS_BRACKETS_ANNUAL,
     COMPREHENSIVE_BRACKETS,
@@ -80,8 +82,8 @@ class TestProgressiveTax:
         assert _progressive_tax(-500, COMPREHENSIVE_BRACKETS) == 0.0
 
     def test_first_bracket_boundary(self):
-        # 38000 × 3% − 0 = 1140（边界值，仍属第一档）
-        assert _progressive_tax(38000, COMPREHENSIVE_BRACKETS) == pytest.approx(1140.0)
+        # 36000 × 3% − 0 = 1080（边界值，仍属第一档）
+        assert _progressive_tax(36000, COMPREHENSIVE_BRACKETS) == pytest.approx(1080.0)
 
     def test_second_bracket(self):
         # 100000 × 10% − 2520 = 7480
@@ -106,78 +108,91 @@ class TestProgressiveTax:
 
 
 # ──────────────────────────────────────────────
-# 月度社保计算
+# 月度三险与公积金计算
 # ──────────────────────────────────────────────
 
-class TestMonthlySocialSecurity:
-    def test_zero_rates_all_zero(self, minimal_config):
+class TestMonthlyInsuranceAndHousingFund:
+    def test_zero_rates_insurance_all_zero(self, minimal_config):
         calc = TaxCalculator(minimal_config)
-        ss = calc.monthly_social_security(20000)
-        assert ss["pension"] == 0.0
-        assert ss["medical"] == 0.0
-        assert ss["unemployment"] == 0.0
-        assert ss["housing_fund_employee"] == 0.0
-        assert ss["housing_fund_employer"] == 0.0
-        assert ss["total"] == 0.0
+        ins = calc.monthly_insurance(20000)
+        assert ins["pension"] == 0.0
+        assert ins["medical"] == 0.0
+        assert ins["unemployment"] == 0.0
+        assert ins["total"] == 0.0
 
-    def test_full_rates_no_cap(self, full_config):
+    def test_zero_rates_housing_fund_all_zero(self, minimal_config):
+        calc = TaxCalculator(minimal_config)
+        hf = calc.monthly_housing_fund(20000)
+        assert hf["employee"] == 0.0
+        assert hf["employer"] == 0.0
+
+    def test_full_rates_insurance_no_cap(self, full_config):
         """
         月薪 20000，无基数上下限。
 
-        pension     = 20000 × 8%    = 1600
-        medical     = 20000 × 2%    = 400
-        unemployment= 20000 × 0.5%  = 100
-        fund_e      = 20000 × 12%   = 2400
-        fund_u      = 20000 × 12%   = 2400
-        total       = 1600+400+100+2400 = 4500（个人部分）
+        pension      = 20000 × 8%   = 1600
+        medical      = 20000 × 2%   = 400
+        unemployment = 20000 × 0.5% = 100
+        total        = 2100（纯三险）
         """
         calc = TaxCalculator(full_config)
-        ss = calc.monthly_social_security(20000)
-        assert ss["pension"] == pytest.approx(1600.0)
-        assert ss["medical"] == pytest.approx(400.0)
-        assert ss["unemployment"] == pytest.approx(100.0)
-        assert ss["housing_fund_employee"] == pytest.approx(2400.0)
-        assert ss["housing_fund_employer"] == pytest.approx(2400.0)
-        assert ss["total"] == pytest.approx(4500.0)
+        ins = calc.monthly_insurance(20000)
+        assert ins["pension"] == pytest.approx(1600.0)
+        assert ins["medical"] == pytest.approx(400.0)
+        assert ins["unemployment"] == pytest.approx(100.0)
+        assert ins["total"] == pytest.approx(2100.0)
 
-    def test_salary_above_ss_cap(self, hangzhou_config):
+    def test_full_rates_housing_fund_no_cap(self, full_config):
+        """
+        月薪 20000，无基数上下限。
+
+        employee = 20000 × 12% = 2400
+        employer = 20000 × 12% = 2400
+        """
+        calc = TaxCalculator(full_config)
+        hf = calc.monthly_housing_fund(20000)
+        assert hf["employee"] == pytest.approx(2400.0)
+        assert hf["employer"] == pytest.approx(2400.0)
+
+    def test_salary_above_cap(self, hangzhou_config):
         """
         月薪 50000 超出社保基数上限 25299，公积金基数上限 40694。
 
-        社保基数 clamp 到 25299：pension = 25299 × 8% = 2023.92
-        公积金基数 clamp 到 40694：fund_e = 40694 × 12% = 4883.28
+        三险基数 clamp 到 25299：pension = 25299 × 8% = 2023.92
+        公积金基数 clamp 到 40694：employee = 40694 × 12% = 4883.28
         """
         calc = TaxCalculator(hangzhou_config)
-        ss = calc.monthly_social_security(50000)
-        assert ss["pension"] == pytest.approx(25299 * 0.08)
-        assert ss["medical"] == pytest.approx(25299 * 0.02)
-        assert ss["unemployment"] == pytest.approx(25299 * 0.005)
-        assert ss["housing_fund_employee"] == pytest.approx(40694 * 0.12)
-        assert ss["housing_fund_employer"] == pytest.approx(40694 * 0.12)
+        ins = calc.monthly_insurance(50000)
+        hf = calc.monthly_housing_fund(50000)
+        assert ins["pension"] == pytest.approx(25299 * 0.08)
+        assert ins["medical"] == pytest.approx(25299 * 0.02)
+        assert ins["unemployment"] == pytest.approx(25299 * 0.005)
+        assert hf["employee"] == pytest.approx(40694 * 0.12)
+        assert hf["employer"] == pytest.approx(40694 * 0.12)
 
-    def test_salary_below_ss_min(self, hangzhou_config):
+    def test_salary_below_min(self, hangzhou_config):
         """
         月薪 1000 低于社保基数下限 4986，公积金基数下限 2490。
 
-        社保基数 clamp 到 4986，公积金 clamp 到 2490。
+        三险基数 clamp 到 4986，公积金基数 clamp 到 2490。
         """
         calc = TaxCalculator(hangzhou_config)
-        ss = calc.monthly_social_security(1000)
-        assert ss["pension"] == pytest.approx(4986 * 0.08)
-        assert ss["medical"] == pytest.approx(4986 * 0.02)
-        assert ss["housing_fund_employee"] == pytest.approx(2490 * 0.12)
-        assert ss["housing_fund_employer"] == pytest.approx(2490 * 0.12)
+        ins = calc.monthly_insurance(1000)
+        hf = calc.monthly_housing_fund(1000)
+        assert ins["pension"] == pytest.approx(4986 * 0.08)
+        assert ins["medical"] == pytest.approx(4986 * 0.02)
+        assert hf["employee"] == pytest.approx(2490 * 0.12)
+        assert hf["employer"] == pytest.approx(2490 * 0.12)
 
-    def test_employer_rate_defaults_to_employee_rate(self):
-        """housing_fund_employer_rate 未配置时应与个人比例相同。"""
-        cfg = TaxConfig(
-            housing_fund_employee_rate=0.07,
-            housing_fund_employer_rate=0.07,  # 模拟 JSON 未写时由 load 设置为相同值
-        )
+    def test_employer_rate_defaults_to_employee_rate(self, tmp_path):
+        """JSON 未写 housing_fund_employer_rate 时，应由 load_tax_config_from_json 将其设为与个人比例相同。"""
+        json_file = tmp_path / "test.json"
+        json_file.write_text('{"housing_fund_employee_rate": 0.07}', encoding="utf-8")
+        cfg = load_tax_config_from_json(json_file)
         calc = TaxCalculator(cfg)
-        ss = calc.monthly_social_security(10000)
-        assert ss["housing_fund_employee"] == pytest.approx(700.0)
-        assert ss["housing_fund_employer"] == pytest.approx(700.0)
+        hf = calc.monthly_housing_fund(10000)
+        assert hf["employee"] == pytest.approx(700.0)
+        assert hf["employer"] == pytest.approx(700.0)
 
 
 # ──────────────────────────────────────────────
@@ -192,7 +207,7 @@ class TestResultFromSalaryBonusSplit:
         场景 A：月薪 10000，无年终奖，零社保。
 
         taxable = 10000×12 − 60000 = 60000
-        60000 ∈ (38000, 148000]：tax = 60000 × 10% − 2520 = 3480
+        60000 ∈ (36000, 144000]：tax = 60000 × 10% − 2520 = 3480
         """
         calc = TaxCalculator(minimal_config)
         r = result_from_salary_bonus_split(calc, 120000, 10000, 0)
@@ -232,8 +247,9 @@ class TestResultFromSalaryBonusSplit:
         """
         场景 B：月薪 20000，无年终奖，全额社保公积金。
 
-        月社保（个人）= 20000×(8%+2%+0.5%) + 20000×12% = 2100 + 2400 = 4500
-        年社保 = 4500 × 12 = 54000
+        月社保（个人三险）= 20000×(8%+2%+0.5%) = 2100
+        月公积金（个人）= 20000×12% = 2400
+        月合计个人 = 4500；年社保 = 4500 × 12 = 54000
         """
         calc = TaxCalculator(full_config)
         r = result_from_salary_bonus_split(calc, 240000, 20000, 0)
@@ -250,7 +266,7 @@ class TestResultFromSalaryBonusSplit:
     def test_scenario_b_total_tax(self, full_config):
         """
         taxable = 240000 − 60000 − 54000 = 126000
-        126000 ∈ (38000, 148000]：tax = 126000 × 10% − 2520 = 10080
+        126000 ∈ (36000, 144000]：tax = 126000 × 10% − 2520 = 10080
         """
         calc = TaxCalculator(full_config)
         r = result_from_salary_bonus_split(calc, 240000, 20000, 0)
@@ -331,25 +347,29 @@ class TestResultFromSalaryBonusSplit:
 
 
 # ──────────────────────────────────────────────
-# 网页 6 个核心指标字段完整性
+# 网页 8 个核心指标字段完整性
 # ──────────────────────────────────────────────
 
-SIX_CARD_FIELDS = [
-    "net_take_home",                          # 卡片①：年度到手现金
-    "total_tax",                              # 卡片②：全年纳税合计
-    "effective_tax_rate",                     # 卡片③：综合税负率
-    "annual_provident_fund",                  # 卡片④：公积金总额
-    "annual_social_security",                 # 卡片⑤：社保（新增）
-    "net_take_home_including_provident_fund", # 卡片⑥：到手现金+公积金（新增）
+# 名义收入卡片由前端计算 annual_salary + bonus，其余卡片直接取以下字段
+CARD_FIELDS = [
+    "annual_salary",
+    "bonus",
+    "net_take_home",
+    "annual_provident_fund",
+    "net_take_home_including_provident_fund",
+    "total_tax",
+    "effective_tax_rate",
+    "annual_insurance",
+    "effective_burden_rate",
 ]
 
 
-class TestSixCardFields:
-    def test_all_six_fields_present(self, full_config):
-        """result 字典必须包含网页 6 个核心指标卡片的全部字段。"""
+class TestCardFields:
+    def test_all_card_fields_present(self, full_config):
+        """result 字典必须包含网页 8 个核心指标卡片所需的全部字段。"""
         calc = TaxCalculator(full_config)
         r = result_from_salary_bonus_split(calc, 300000, 20000, 60000)
-        for field in SIX_CARD_FIELDS:
+        for field in CARD_FIELDS:
             assert field in r, f"缺少字段：{field}"
 
     def test_social_security_card_is_annual(self, full_config):
@@ -366,18 +386,18 @@ class TestSixCardFields:
             r["net_take_home"] + r["annual_provident_fund"]
         )
 
-    def test_all_six_fields_are_non_negative(self, full_config):
-        """6 个指标均应为非负数。"""
+    def test_all_card_fields_are_non_negative(self, full_config):
+        """8 个指标所需字段均应为非负数。"""
         calc = TaxCalculator(full_config)
         r = result_from_salary_bonus_split(calc, 300000, 20000, 60000)
-        for field in SIX_CARD_FIELDS:
+        for field in CARD_FIELDS:
             assert r[field] >= 0, f"{field} 不应为负数"
 
-    def test_six_fields_with_zero_provident_fund(self, minimal_config):
-        """零公积金时 6 个字段均应正常存在。"""
+    def test_card_fields_with_zero_provident_fund(self, minimal_config):
+        """零公积金时所有卡片字段均应正常存在。"""
         calc = TaxCalculator(minimal_config)
         r = result_from_salary_bonus_split(calc, 120000, 10000, 0)
-        for field in SIX_CARD_FIELDS:
+        for field in CARD_FIELDS:
             assert field in r
 
 
@@ -401,7 +421,7 @@ class TestMonthlyDetails:
         月薪 20000，无社保，无额外扣除。
 
         第 1 月累计应税所得 = 20000 − 5000 = 15000
-        0 < 15000 ≤ 38000：cum_tax = 15000 × 3% = 450
+        0 < 15000 ≤ 36000：cum_tax = 15000 × 3% = 450
         month_tax = 450；after_tax = 20000 − 0 − 450 = 19550
         """
         calc = TaxCalculator(minimal_config)
@@ -450,19 +470,49 @@ class TestMonthlyDetails:
         assert m12["after_tax_salary"] == pytest.approx(17000.0)
 
     def test_annual_tax_sum_matches_result(self, full_config):
-        """月度税额之和应等于 total_tax_and_social_security 的综合所得税。"""
+        """月度税额之和应等于 _calc_annual_tax 的综合所得税。"""
         calc = TaxCalculator(full_config)
-        comp_tax, _, _, _, ss = calc.total_tax_and_social_security(20000, 0)
-        details = calc.monthly_details(20000, ss)
+        comp_tax, _, _, _, ins, hf = calc._calc_annual_tax(20000, 0)
+        details = calc.monthly_details(20000, ins, hf)
         assert sum(d["tax"] for d in details) == pytest.approx(comp_tax, abs=0.01)
 
     def test_monthly_detail_has_required_keys(self, full_config):
         """每行明细需含网页表格所需的全部字段。"""
         required = {
-            "month", "salary", "social_security", "tax",
+            "month", "salary", "insurance", "housing_fund", "tax",
             "after_tax_salary", "after_tax_including_provident_fund",
         }
         calc = TaxCalculator(full_config)
         details = calc.monthly_details(20000)
         for row in details:
             assert required.issubset(row.keys()), f"第 {row.get('month')} 月明细缺字段"
+
+
+# ──────────────────────────────────────────────
+# TaxOptimizer
+# ──────────────────────────────────────────────
+
+class TestTaxOptimizer:
+    def test_monthly_details_insurance_matches_best_salary(self, full_config):
+        """
+        optimize() 的 monthly_details 中 insurance/housing_fund 必须对应最优月薪，
+        而非循环末次迭代的月薪。
+
+        回归测试：修复前 best_ins/best_hf 在循环后指向最后一次迭代（m = cap），
+        若最优月薪 < cap，月度明细会使用错误的三险/公积金分项值。
+
+        full_config + total=300000 时，含年终奖的拆分比纯月薪更优，
+        因此最优月薪必然小于 cap（25000），可验证此边界。
+        """
+        calc = TaxCalculator(full_config)
+        result = TaxOptimizer(calc).optimize(300000)
+        best_monthly = result["monthly_salary"]
+        cap = int(300000 // 12)
+        assert best_monthly < cap, "前提不成立：最优月薪应小于 cap，无法触发原 bug"
+
+        expected_ins = calc.monthly_insurance(best_monthly)
+        expected_hf = calc.monthly_housing_fund(best_monthly)
+        for row in result["monthly_details"]:
+            assert row["insurance"]["total"] == pytest.approx(expected_ins["total"])
+            assert row["housing_fund"]["employee"] == pytest.approx(expected_hf["employee"])
+            assert row["housing_fund"]["employer"] == pytest.approx(expected_hf["employer"])
