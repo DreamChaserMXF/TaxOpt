@@ -80,8 +80,8 @@ class TestProgressiveTax:
         assert _progressive_tax(-500, COMPREHENSIVE_BRACKETS) == 0.0
 
     def test_first_bracket_boundary(self):
-        # 38000 × 3% − 0 = 1140（边界值，仍属第一档）
-        assert _progressive_tax(38000, COMPREHENSIVE_BRACKETS) == pytest.approx(1140.0)
+        # 36000 × 3% − 0 = 1080（边界值，仍属第一档）
+        assert _progressive_tax(36000, COMPREHENSIVE_BRACKETS) == pytest.approx(1080.0)
 
     def test_second_bracket(self):
         # 100000 × 10% − 2520 = 7480
@@ -192,7 +192,7 @@ class TestResultFromSalaryBonusSplit:
         场景 A：月薪 10000，无年终奖，零社保。
 
         taxable = 10000×12 − 60000 = 60000
-        60000 ∈ (38000, 148000]：tax = 60000 × 10% − 2520 = 3480
+        60000 ∈ (36000, 144000]：tax = 60000 × 10% − 2520 = 3480
         """
         calc = TaxCalculator(minimal_config)
         r = result_from_salary_bonus_split(calc, 120000, 10000, 0)
@@ -232,8 +232,9 @@ class TestResultFromSalaryBonusSplit:
         """
         场景 B：月薪 20000，无年终奖，全额社保公积金。
 
-        月社保（个人）= 20000×(8%+2%+0.5%) + 20000×12% = 2100 + 2400 = 4500
-        年社保 = 4500 × 12 = 54000
+        月社保（个人三险）= 20000×(8%+2%+0.5%) = 2100
+        月公积金（个人）= 20000×12% = 2400
+        月合计个人 = 4500；年社保 = 4500 × 12 = 54000
         """
         calc = TaxCalculator(full_config)
         r = result_from_salary_bonus_split(calc, 240000, 20000, 0)
@@ -250,7 +251,7 @@ class TestResultFromSalaryBonusSplit:
     def test_scenario_b_total_tax(self, full_config):
         """
         taxable = 240000 − 60000 − 54000 = 126000
-        126000 ∈ (38000, 148000]：tax = 126000 × 10% − 2520 = 10080
+        126000 ∈ (36000, 144000]：tax = 126000 × 10% − 2520 = 10080
         """
         calc = TaxCalculator(full_config)
         r = result_from_salary_bonus_split(calc, 240000, 20000, 0)
@@ -401,7 +402,7 @@ class TestMonthlyDetails:
         月薪 20000，无社保，无额外扣除。
 
         第 1 月累计应税所得 = 20000 − 5000 = 15000
-        0 < 15000 ≤ 38000：cum_tax = 15000 × 3% = 450
+        0 < 15000 ≤ 36000：cum_tax = 15000 × 3% = 450
         month_tax = 450；after_tax = 20000 − 0 − 450 = 19550
         """
         calc = TaxCalculator(minimal_config)
