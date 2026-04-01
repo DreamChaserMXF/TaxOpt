@@ -1,8 +1,5 @@
 """
-API 接口测试 — 当前必然失败（api.py 尚未创建）。
-
-失败原因：`from api import app` → ImportError / ModuleNotFoundError
-实现 api.py 并运行 `pytest tests/test_api.py` 后应全部通过。
+API 接口测试。
 
 依赖：pip install fastapi httpx pytest
 """
@@ -16,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from fastapi.testclient import TestClient
 
-from api import app  # ← api.py 未创建时此行 ImportError，整个文件跳过收集
+from api import app
 
 client = TestClient(app)
 
@@ -25,12 +22,12 @@ client = TestClient(app)
 # ──────────────────────────────────────────────
 
 SIX_CARD_FIELDS = [
-    "net_take_home",                          # 卡片①：年度到手现金
-    "total_tax",                              # 卡片②：全年纳税合计
-    "effective_tax_rate",                     # 卡片③：综合税负率
-    "annual_provident_fund",                  # 卡片④：公积金总额
-    "annual_social_security",                 # 卡片⑤：社保（新增）
-    "net_take_home_including_provident_fund", # 卡片⑥：到手现金+公积金（新增）
+    "net_take_home",
+    "total_tax",
+    "effective_tax_rate",
+    "annual_provident_fund",
+    "annual_social_security",
+    "net_take_home_including_provident_fund",
 ]
 
 # 零社保零公积金配置

@@ -34,7 +34,7 @@ class TaxConfig:
     housing_fund_base_min: float = 0  # 公积金缴费基数下限（月）
     housing_fund_base_limit: float = 0  # 公积金缴费基数上限（月）
     housing_fund_employee_rate: float = 0.12  # 公积金个人缴存比例
-    housing_fund_employer_rate: float = 0.12  # 公积金公司缴存比例（JSON 未写时默认与个人相同）
+    housing_fund_employer_rate: float = 0.12  # 公积金公司缴存比例（load_tax_config_from_json 未写时取与个人相同值）
 
     children_education: float = 0  # 子女教育专项附加扣除（月）
     continuing_education: float = 0  # 继续教育专项附加扣除（月）
@@ -227,8 +227,6 @@ class TaxCalculator:
             "employer": base * self.c.housing_fund_employer_rate,
         }
 
-
-
     def bonus_tax(self, bonus: float) -> float:
         if bonus <= 0:
             return 0.0
@@ -319,6 +317,8 @@ class TaxOptimizer:
             raise ValueError("全年工资总额不能为负数")
 
         best: Optional[Dict[str, Any]] = None
+        best_ins: Optional[Dict[str, float]] = None
+        best_hf: Optional[Dict[str, float]] = None
         best_net = float("-inf")
         best_tax_at_net = float("inf")
         cap = int(total_annual // 12)
@@ -339,6 +339,7 @@ class TaxOptimizer:
             if score > best_net or (score == best_net and tax < best_tax_at_net):
                 best_net = score
                 best_tax_at_net = tax
+                best_ins, best_hf = _ins, _hf
                 best = {
                     "monthly_salary": m,
                     "annual_salary": m * 12,
@@ -362,7 +363,7 @@ class TaxOptimizer:
 
         enrich_result_with_provident_fund(best)
         b = best["bonus"]
-        best["monthly_details"] = self.calc.monthly_details(best["monthly_salary"], _ins, _hf)
+        best["monthly_details"] = self.calc.monthly_details(best["monthly_salary"], best_ins, best_hf)
         best["bonus_after_tax"] = b - best["bonus_tax"]
         return best
 

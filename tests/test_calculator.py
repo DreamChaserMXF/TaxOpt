@@ -16,6 +16,7 @@ from main import (
     TaxCalculator,
     _progressive_tax,
     enrich_result_with_provident_fund,
+    load_tax_config_from_json,
     result_from_salary_bonus_split,
     BONUS_BRACKETS_ANNUAL,
     COMPREHENSIVE_BRACKETS,
@@ -182,12 +183,11 @@ class TestMonthlyInsuranceAndHousingFund:
         assert hf["employee"] == pytest.approx(2490 * 0.12)
         assert hf["employer"] == pytest.approx(2490 * 0.12)
 
-    def test_employer_rate_defaults_to_employee_rate(self):
-        """housing_fund_employer_rate 未配置时应与个人比例相同。"""
-        cfg = TaxConfig(
-            housing_fund_employee_rate=0.07,
-            housing_fund_employer_rate=0.07,  # 模拟 JSON 未写时由 load 设置为相同值
-        )
+    def test_employer_rate_defaults_to_employee_rate(self, tmp_path):
+        """JSON 未写 housing_fund_employer_rate 时，应由 load_tax_config_from_json 将其设为与个人比例相同。"""
+        json_file = tmp_path / "test.json"
+        json_file.write_text('{"housing_fund_employee_rate": 0.07}', encoding="utf-8")
+        cfg = load_tax_config_from_json(json_file)
         calc = TaxCalculator(cfg)
         hf = calc.monthly_housing_fund(10000)
         assert hf["employee"] == pytest.approx(700.0)
