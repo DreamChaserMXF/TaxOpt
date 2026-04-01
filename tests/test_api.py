@@ -29,7 +29,7 @@ CARD_FIELDS = [
     "net_take_home_including_provident_fund",
     "total_tax",
     "effective_tax_rate",
-    "annual_social_security",
+    "annual_insurance",
     "effective_burden_rate",
 ]
 

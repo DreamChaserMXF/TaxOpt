@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from main import (
     TaxConfig,
     TaxCalculator,
+    TaxOptimizer,
     _progressive_tax,
     enrich_result_with_provident_fund,
     load_tax_config_from_json,
@@ -358,7 +359,7 @@ CARD_FIELDS = [
     "net_take_home_including_provident_fund",
     "total_tax",
     "effective_tax_rate",
-    "annual_social_security",
+    "annual_insurance",
     "effective_burden_rate",
 ]
 
@@ -485,3 +486,33 @@ class TestMonthlyDetails:
         details = calc.monthly_details(20000)
         for row in details:
             assert required.issubset(row.keys()), f"第 {row.get('month')} 月明细缺字段"
+
+
+# ──────────────────────────────────────────────
+# TaxOptimizer
+# ──────────────────────────────────────────────
+
+class TestTaxOptimizer:
+    def test_monthly_details_insurance_matches_best_salary(self, full_config):
+        """
+        optimize() 的 monthly_details 中 insurance/housing_fund 必须对应最优月薪，
+        而非循环末次迭代的月薪。
+
+        回归测试：修复前 best_ins/best_hf 在循环后指向最后一次迭代（m = cap），
+        若最优月薪 < cap，月度明细会使用错误的三险/公积金分项值。
+
+        full_config + total=300000 时，含年终奖的拆分比纯月薪更优，
+        因此最优月薪必然小于 cap（25000），可验证此边界。
+        """
+        calc = TaxCalculator(full_config)
+        result = TaxOptimizer(calc).optimize(300000)
+        best_monthly = result["monthly_salary"]
+        cap = int(300000 // 12)
+        assert best_monthly < cap, "前提不成立：最优月薪应小于 cap，无法触发原 bug"
+
+        expected_ins = calc.monthly_insurance(best_monthly)
+        expected_hf = calc.monthly_housing_fund(best_monthly)
+        for row in result["monthly_details"]:
+            assert row["insurance"]["total"] == pytest.approx(expected_ins["total"])
+            assert row["housing_fund"]["employee"] == pytest.approx(expected_hf["employee"])
+            assert row["housing_fund"]["employer"] == pytest.approx(expected_hf["employer"])
