@@ -106,8 +106,12 @@ class CalculateRequest(BaseModel):
             raise ValueError("必须提供 config 或 preset_slug 之一")
         if self.mode == "salary" and self.monthly is None:
             raise ValueError("salary 模式需要 monthly")
+        if self.mode == "salary" and self.total is None:
+            raise ValueError("salary 模式需要 total")
         if self.mode == "bonus" and self.bonus is None:
             raise ValueError("bonus 模式需要 bonus")
+        if self.mode == "bonus" and self.total is None:
+            raise ValueError("bonus 模式需要 total")
         if self.mode == "both" and (self.monthly is None or self.bonus is None):
             raise ValueError("both 模式需要 monthly 和 bonus")
         return self
