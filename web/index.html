@@ -454,10 +454,10 @@ function taxapp() {
       this._pieChart = new Chart(pieEl, {
         type: 'doughnut',
         data: {
-          labels: ['到手现金', '个税', '个人五险一金'],
+          labels: ['到手现金', '个税', '个人三险', '个人公积金'],
           datasets: [{
-            data: [r.net_take_home, r.total_tax, r.annual_social_security],
-            backgroundColor: ['#22c55e', '#ef4444', '#f97316'],
+            data: [r.net_take_home, r.total_tax, r.annual_insurance, r.annual_housing_fund_employee],
+            backgroundColor: ['#22c55e', '#ef4444', '#f97316', '#3b82f6'],
             borderWidth: 0,
           }],
         },
