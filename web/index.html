@@ -205,8 +205,8 @@
       </div>
     </template>
 
-    <!-- 6 个核心指标卡片 -->
-    <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+    <!-- 8 个核心指标卡片 -->
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
       <template x-for="card in metricCards()" :key="card.label">
         <div class="card flex flex-col gap-1">
           <span class="text-xs text-gray-400" x-text="card.label"></span>
@@ -403,31 +403,19 @@ function taxapp() {
     metricCards() {
       if (!this.result) return [];
       const r = this.result;
-      const total = (r.annual_salary || 0) + (r.bonus || 0);
+      const nominal = (r.annual_salary || 0) + (r.bonus || 0);
       return [
         {
-          label: '年度到手现金',
+          label: '名义收入',
+          value: '¥ ' + this.fmt(nominal),
+          sub: '月薪×12 + 年终奖',
+          color: 'text-gray-700',
+        },
+        {
+          label: '到手现金',
           value: '¥ ' + this.fmt(r.net_take_home),
-          sub: '税前名义 ¥' + this.fmt(total),
+          sub: '扣除个税与三险一金',
           color: 'text-green-600',
-        },
-        {
-          label: '现金 + 公积金',
-          value: '¥ ' + this.fmt(r.net_take_home_including_provident_fund),
-          sub: '含个人+单位公积金',
-          color: 'text-teal-600',
-        },
-        {
-          label: '全年纳税合计',
-          value: '¥ ' + this.fmt(r.total_tax),
-          sub: '税负率 ' + this.fmtPct(r.effective_tax_rate),
-          color: 'text-red-500',
-        },
-        {
-          label: '个人三险一金',
-          value: '¥ ' + this.fmt(r.annual_social_security),
-          sub: '占收入 ' + this.fmtPct(r.effective_social_security_rate),
-          color: 'text-orange-500',
         },
         {
           label: '公积金入账',
@@ -436,9 +424,33 @@ function taxapp() {
           color: 'text-blue-500',
         },
         {
-          label: '综合负担率',
+          label: '现金 + 公积金',
+          value: '¥ ' + this.fmt(r.net_take_home_including_provident_fund),
+          sub: '含个人+单位公积金',
+          color: 'text-teal-600',
+        },
+        {
+          label: '全年个税',
+          value: '¥ ' + this.fmt(r.total_tax),
+          sub: '综合所得 + 年终奖',
+          color: 'text-red-500',
+        },
+        {
+          label: '税率',
+          value: this.fmtPct(r.effective_tax_rate),
+          sub: '个税 / 名义收入',
+          color: 'text-red-400',
+        },
+        {
+          label: '个人三险一金',
+          value: '¥ ' + this.fmt(r.annual_social_security),
+          sub: '三险一金个人合计',
+          color: 'text-orange-500',
+        },
+        {
+          label: '广义税率',
           value: this.fmtPct(r.effective_burden_rate),
-          sub: '（税 + 社保）/ 名义收入',
+          sub: '（个税 + 社保）/ 名义收入',
           color: 'text-purple-500',
         },
       ];

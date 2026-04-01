@@ -346,25 +346,29 @@ class TestResultFromSalaryBonusSplit:
 
 
 # ──────────────────────────────────────────────
-# 网页 6 个核心指标字段完整性
+# 网页 8 个核心指标字段完整性
 # ──────────────────────────────────────────────
 
-SIX_CARD_FIELDS = [
-    "net_take_home",                          # 卡片①：年度到手现金
-    "total_tax",                              # 卡片②：全年纳税合计
-    "effective_tax_rate",                     # 卡片③：综合税负率
-    "annual_provident_fund",                  # 卡片④：公积金总额
-    "annual_social_security",                 # 卡片⑤：社保（新增）
-    "net_take_home_including_provident_fund", # 卡片⑥：到手现金+公积金（新增）
+# 名义收入卡片由前端计算 annual_salary + bonus，其余卡片直接取以下字段
+CARD_FIELDS = [
+    "annual_salary",
+    "bonus",
+    "net_take_home",
+    "annual_provident_fund",
+    "net_take_home_including_provident_fund",
+    "total_tax",
+    "effective_tax_rate",
+    "annual_social_security",
+    "effective_burden_rate",
 ]
 
 
-class TestSixCardFields:
-    def test_all_six_fields_present(self, full_config):
-        """result 字典必须包含网页 6 个核心指标卡片的全部字段。"""
+class TestCardFields:
+    def test_all_card_fields_present(self, full_config):
+        """result 字典必须包含网页 8 个核心指标卡片所需的全部字段。"""
         calc = TaxCalculator(full_config)
         r = result_from_salary_bonus_split(calc, 300000, 20000, 60000)
-        for field in SIX_CARD_FIELDS:
+        for field in CARD_FIELDS:
             assert field in r, f"缺少字段：{field}"
 
     def test_social_security_card_is_annual(self, full_config):
@@ -381,18 +385,18 @@ class TestSixCardFields:
             r["net_take_home"] + r["annual_provident_fund"]
         )
 
-    def test_all_six_fields_are_non_negative(self, full_config):
-        """6 个指标均应为非负数。"""
+    def test_all_card_fields_are_non_negative(self, full_config):
+        """8 个指标所需字段均应为非负数。"""
         calc = TaxCalculator(full_config)
         r = result_from_salary_bonus_split(calc, 300000, 20000, 60000)
-        for field in SIX_CARD_FIELDS:
+        for field in CARD_FIELDS:
             assert r[field] >= 0, f"{field} 不应为负数"
 
-    def test_six_fields_with_zero_provident_fund(self, minimal_config):
-        """零公积金时 6 个字段均应正常存在。"""
+    def test_card_fields_with_zero_provident_fund(self, minimal_config):
+        """零公积金时所有卡片字段均应正常存在。"""
         calc = TaxCalculator(minimal_config)
         r = result_from_salary_bonus_split(calc, 120000, 10000, 0)
-        for field in SIX_CARD_FIELDS:
+        for field in CARD_FIELDS:
             assert field in r
 
 

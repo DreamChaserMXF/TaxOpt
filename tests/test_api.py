@@ -21,13 +21,16 @@ client = TestClient(app)
 # 公共常量
 # ──────────────────────────────────────────────
 
-SIX_CARD_FIELDS = [
+CARD_FIELDS = [
+    "annual_salary",
+    "bonus",
     "net_take_home",
+    "annual_provident_fund",
+    "net_take_home_including_provident_fund",
     "total_tax",
     "effective_tax_rate",
-    "annual_provident_fund",
     "annual_social_security",
-    "net_take_home_including_provident_fund",
+    "effective_burden_rate",
 ]
 
 # 零社保零公积金配置
@@ -227,7 +230,7 @@ class TestCalculateNumerics:
             "config": FULL_CONFIG,
         })
         assert r_both.status_code == 200
-        for field in SIX_CARD_FIELDS:
+        for field in CARD_FIELDS:
             assert r_both.json()[field] == pytest.approx(r_bonus.json()[field], abs=0.01)
 
     def test_optimize_mode_returns_valid_split(self):
@@ -241,34 +244,34 @@ class TestCalculateNumerics:
         assert data["monthly_salary"] * 12 + data["bonus"] == pytest.approx(300000.0, abs=0.01)
 
     def test_optimize_mode_cash_plus_pf_objective(self):
-        """cash_plus_provident_fund 目标的优化结果仍包含 6 个卡片字段。"""
+        """cash_plus_provident_fund 目标的优化结果仍包含全部卡片字段。"""
         r = client.post("/api/calculate", json={
             "mode": "optimize", "total": 300000,
             "objective": "cash_plus_provident_fund",
             "config": FULL_CONFIG,
         })
         assert r.status_code == 200
-        for field in SIX_CARD_FIELDS:
+        for field in CARD_FIELDS:
             assert field in r.json()
 
 
 # ──────────────────────────────────────────────
-# POST /api/calculate — 6 个指标卡片字段完整性
+# POST /api/calculate — 指标卡片字段完整性
 # ──────────────────────────────────────────────
 
-class TestSixCardFieldsInAPIResponse:
+class TestCardFieldsInAPIResponse:
     @pytest.mark.parametrize("mode,extra", [
         ("salary",   {"total": 300000, "monthly": 20000}),
         ("bonus",    {"total": 300000, "bonus": 60000}),
         ("both",     {"monthly": 20000, "bonus": 60000}),
         ("optimize", {"total": 300000}),
     ])
-    def test_all_six_fields_present(self, mode, extra):
-        """所有计算模式的响应均须包含 6 个卡片字段。"""
+    def test_all_card_fields_present(self, mode, extra):
+        """所有计算模式的响应均须包含卡片所需的全部字段。"""
         r = client.post("/api/calculate", json={"mode": mode, "config": FULL_CONFIG, **extra})
         assert r.status_code == 200
         data = r.json()
-        for field in SIX_CARD_FIELDS:
+        for field in CARD_FIELDS:
             assert field in data, f"模式={mode} 缺少字段：{field}"
 
     @pytest.mark.parametrize("mode,extra", [
@@ -294,13 +297,13 @@ class TestSixCardFieldsInAPIResponse:
         assert "monthly_details" in data
         assert len(data["monthly_details"]) == 12
 
-    def test_six_fields_all_non_negative(self):
+    def test_all_card_fields_non_negative(self):
         r = client.post("/api/calculate", json={
             "mode": "salary", "total": 300000, "monthly": 20000,
             "config": FULL_CONFIG,
         })
         data = r.json()
-        for field in SIX_CARD_FIELDS:
+        for field in CARD_FIELDS:
             assert data[field] >= 0, f"{field} 不应为负数"
 
 
