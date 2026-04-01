@@ -367,8 +367,7 @@ function taxapp() {
         const body = {
           mode: this.mode,
           objective: this.objective,
-          config: this.presetSlug ? undefined : { ...this.cfg },
-          preset_slug: this.presetSlug || undefined,
+          config: { ...this.cfg },
         };
         if (this.mode !== 'both') body.total = this.income.total;
         if (this.mode === 'salary' || this.mode === 'both') body.monthly = this.income.monthly;
