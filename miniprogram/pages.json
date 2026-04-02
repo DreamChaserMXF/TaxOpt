@@ -1,0 +1,26 @@
+{
+  "pages": [
+    {
+      "path": "pages/index/index",
+      "style": {
+        "navigationBarTitleText": "个税优化",
+        "navigationBarBackgroundColor": "#4f46e5",
+        "navigationBarTextStyle": "white"
+      }
+    },
+    {
+      "path": "pages/result/result",
+      "style": {
+        "navigationBarTitleText": "计算结果",
+        "navigationBarBackgroundColor": "#4f46e5",
+        "navigationBarTextStyle": "white"
+      }
+    }
+  ],
+  "globalStyle": {
+    "navigationBarTextStyle": "white",
+    "navigationBarBackgroundColor": "#4f46e5",
+    "backgroundColor": "#f3f4f6"
+  },
+  "uniIdRouter": {}
+}

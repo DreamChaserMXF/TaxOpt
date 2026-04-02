@@ -1,0 +1,19 @@
+{
+  "name": "TaxOpt 个税优化",
+  "appid": "__填入微信小程序AppID__",
+  "description": "个人所得税计算与税筹优化工具",
+  "versionName": "1.0.0",
+  "versionCode": "100",
+  "transformPx": false,
+  "mp-weixin": {
+    "appid": "__填入微信小程序AppID__",
+    "setting": {
+      "urlCheck": true,
+      "es6": true,
+      "minified": true
+    },
+    "usingComponents": true,
+    "permission": {},
+    "requiredPrivateInfos": []
+  }
+}
