@@ -1,0 +1,19 @@
+{
+  "basic_deduction": 60000,
+  "social_security_base_min": 4007,
+  "social_security_base_limit": 20034,
+  "pension_rate": 0.08,
+  "medical_rate": 0.02,
+  "unemployment_rate": 0.005,
+  "housing_fund_base_min": 2200,
+  "housing_fund_base_limit": 26420,
+  "housing_fund_employee_rate": 0.12,
+  "housing_fund_employer_rate": 0.12,
+  "children_education": 0,
+  "continuing_education": 0,
+  "serious_illness": 0,
+  "housing_loan_interest": 0,
+  "housing_rent": 0,
+  "elderly_support": 0,
+  "annual_additional_deduction": 0
+}

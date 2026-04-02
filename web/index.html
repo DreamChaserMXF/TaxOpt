@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TaxOpt · 个税计算与税筹优化</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+<style>
+  [x-cloak] { display: none !important; }
+  .card { @apply bg-white rounded-xl shadow-sm border border-gray-100 p-5; }
+  .input-field { @apply w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent transition; }
+  .label { @apply block text-xs font-medium text-gray-500 mb-1; }
+  .section-title { @apply text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3; }
+</style>
+</head>
+<body class="bg-gray-50 min-h-screen" x-data="taxapp()" x-init="init()">
+
+<!-- Header -->
+<header class="bg-white border-b border-gray-100 sticky top-0 z-10">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
+    <div class="flex items-center gap-2">
+      <span class="text-lg font-bold text-indigo-600">TaxOpt</span>
+      <span class="text-gray-300">|</span>
+      <span class="text-sm text-gray-500">个税计算与税筹优化</span>
+    </div>
+    <span class="text-xs text-gray-400">2025 年度</span>
+  </div>
+</header>
+
+<div class="max-w-7xl mx-auto px-4 sm:px-6 py-6 flex flex-col lg:flex-row gap-6">
+
+  <!-- ══════════════════ 左栏：输入 ══════════════════ -->
+  <aside class="w-full lg:w-96 flex-shrink-0 space-y-4">
+
+    <!-- 收入设置 -->
+    <div class="card">
+      <p class="section-title">收入设置</p>
+
+      <!-- 模式 Tab -->
+      <div class="flex rounded-lg bg-gray-100 p-1 mb-4 text-xs font-medium">
+        <template x-for="m in modes" :key="m.value">
+          <button @click="mode = m.value; clearResult()"
+            :class="mode === m.value ? 'bg-white shadow text-indigo-600' : 'text-gray-500 hover:text-gray-700'"
+            class="flex-1 rounded-md py-1.5 transition">
+            <span x-text="m.label"></span>
+          </button>
+        </template>
+      </div>
+
+      <!-- 输入字段 -->
+      <div class="space-y-3">
+        <template x-if="mode !== 'both'">
+          <div>
+            <label class="label">全年名义收入（元）</label>
+            <input x-model.number="income.total" type="number" min="0" step="1000"
+              class="input-field" placeholder="如 300000">
+          </div>
+        </template>
+        <template x-if="mode === 'salary' || mode === 'both'">
+          <div>
+            <label class="label">月薪（元/月）</label>
+            <input x-model.number="income.monthly" type="number" min="0" step="100"
+              class="input-field" placeholder="如 20000">
+          </div>
+        </template>
+        <template x-if="mode === 'bonus' || mode === 'both'">
+          <div>
+            <label class="label">年终奖（元）</label>
+            <input x-model.number="income.bonus" type="number" min="0" step="1000"
+              class="input-field" placeholder="如 60000">
+          </div>
+        </template>
+
+        <!-- 优化目标（仅 optimize 模式） -->
+        <template x-if="mode === 'optimize'">
+          <div>
+            <label class="label">优化目标</label>
+            <select x-model="objective" class="input-field">
+              <option value="cash">最大化到手现金</option>
+              <option value="cash_plus_provident_fund">最大化现金 + 公积金</option>
+            </select>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <!-- 城市预设 -->
+    <div class="card">
+      <p class="section-title">城市 / 社保参数</p>
+      <div class="mb-3">
+        <label class="label">城市预设</label>
+        <select x-model="presetSlug" @change="loadPreset()" class="input-field">
+          <option value="">自定义参数</option>
+          <template x-for="p in presets" :key="p.slug">
+            <option :value="p.slug" x-text="p.label"></option>
+          </template>
+        </select>
+      </div>
+
+      <!-- 可折叠：社保/公积金参数 -->
+      <button @click="showSS = !showSS"
+        class="flex items-center gap-1 text-xs text-indigo-500 hover:text-indigo-700 mb-2">
+        <svg :class="showSS ? 'rotate-90' : ''" class="w-3 h-3 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+        <span x-text="showSS ? '收起参数' : '展开参数'"></span>
+      </button>
+
+      <div x-show="showSS" x-cloak class="space-y-2">
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="label">社保基数下限</label>
+            <input x-model.number="cfg.social_security_base_min" type="number" min="0" class="input-field">
+          </div>
+          <div>
+            <label class="label">社保基数上限</label>
+            <input x-model.number="cfg.social_security_base_limit" type="number" min="0" class="input-field">
+          </div>
+        </div>
+        <div class="grid grid-cols-3 gap-2">
+          <div>
+            <label class="label">养老 %</label>
+            <input x-model.number="cfg.pension_rate" type="number" min="0" max="1" step="0.001" class="input-field">
+          </div>
+          <div>
+            <label class="label">医疗 %</label>
+            <input x-model.number="cfg.medical_rate" type="number" min="0" max="1" step="0.001" class="input-field">
+          </div>
+          <div>
+            <label class="label">失业 %</label>
+            <input x-model.number="cfg.unemployment_rate" type="number" min="0" max="1" step="0.001" class="input-field">
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="label">公积金基数下限</label>
+            <input x-model.number="cfg.housing_fund_base_min" type="number" min="0" class="input-field">
+          </div>
+          <div>
+            <label class="label">公积金基数上限</label>
+            <input x-model.number="cfg.housing_fund_base_limit" type="number" min="0" class="input-field">
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="label">个人公积金比例</label>
+            <input x-model.number="cfg.housing_fund_employee_rate" type="number" min="0" max="1" step="0.01" class="input-field">
+          </div>
+          <div>
+            <label class="label">单位公积金比例</label>
+            <input x-model.number="cfg.housing_fund_employer_rate" type="number" min="0" max="1" step="0.01" class="input-field">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 专项附加扣除 -->
+    <div class="card">
+      <p class="section-title">专项附加扣除（月）</p>
+      <div class="space-y-2">
+        <template x-for="d in deductions" :key="d.key">
+          <div class="flex items-center justify-between gap-3">
+            <label class="text-sm text-gray-600 flex-1" x-text="d.label"></label>
+            <input x-model.number="cfg[d.key]" type="number" min="0" step="100"
+              class="w-28 input-field text-right" placeholder="0">
+          </div>
+        </template>
+        <div class="flex items-center justify-between gap-3 pt-1 border-t border-gray-100">
+          <label class="text-sm text-gray-600 flex-1">其他年度专项扣除（全年）</label>
+          <input x-model.number="cfg.annual_additional_deduction" type="number" min="0" step="100"
+            class="w-28 input-field text-right" placeholder="0">
+        </div>
+      </div>
+    </div>
+
+    <!-- 计算按钮 -->
+    <button @click="calculate()"
+      :disabled="loading"
+      class="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 text-white font-semibold text-sm transition shadow">
+      <span x-show="!loading">开始计算</span>
+      <span x-show="loading" x-cloak class="flex items-center justify-center gap-2">
+        <svg class="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></svg>
+        计算中…
+      </span>
+    </button>
+
+    <!-- 错误提示 -->
+    <template x-if="error">
+      <div class="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700" x-text="error"></div>
+    </template>
+
+  </aside>
+
+  <!-- ══════════════════ 右栏：结果 ══════════════════ -->
+  <main class="flex-1 min-w-0 space-y-5" x-show="result" x-cloak>
+
+    <!-- 优化推荐 banner（仅 optimize 模式） -->
+    <template x-if="result && mode === 'optimize'">
+      <div class="bg-indigo-50 border border-indigo-200 rounded-xl px-5 py-4">
+        <p class="text-xs text-indigo-500 font-semibold uppercase tracking-wide mb-1">最优拆分方案</p>
+        <p class="text-base font-bold text-indigo-800">
+          月薪 <span x-text="fmt(result.monthly_salary)"></span> 元 × 12
+          ＋ 年终奖 <span x-text="fmt(result.bonus)"></span> 元
+        </p>
+      </div>
+    </template>
+
+    <!-- 8 个核心指标卡片 -->
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <template x-for="card in metricCards()" :key="card.label">
+        <div class="card flex flex-col gap-1">
+          <span class="text-xs text-gray-400" x-text="card.label"></span>
+          <span class="text-xl font-bold" :class="card.color" x-text="card.value"></span>
+          <template x-if="card.sub">
+            <span class="text-xs text-gray-400" x-text="card.sub"></span>
+          </template>
+        </div>
+      </template>
+    </div>
+
+    <!-- 年终奖明细 -->
+    <template x-if="result && result.bonus > 0">
+      <div class="card">
+        <p class="section-title">年终奖明细</p>
+        <div class="grid grid-cols-3 gap-4 text-sm">
+          <div>
+            <p class="text-gray-400 text-xs">税前</p>
+            <p class="font-semibold" x-text="fmt(result.bonus) + ' 元'"></p>
+          </div>
+          <div>
+            <p class="text-gray-400 text-xs">税额</p>
+            <p class="font-semibold text-orange-600" x-text="fmt(result.bonus_tax) + ' 元'"></p>
+          </div>
+          <div>
+            <p class="text-gray-400 text-xs">税后到手</p>
+            <p class="font-semibold text-green-600" x-text="fmt(result.bonus_after_tax) + ' 元'"></p>
+          </div>
+        </div>
+      </div>
+    </template>
+
+    <!-- 可视化图表 -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div class="card">
+        <p class="section-title">年度收入构成</p>
+        <div class="relative h-52"><canvas id="pieChart"></canvas></div>
+      </div>
+      <div class="card">
+        <p class="section-title">月度到手趋势</p>
+        <div class="relative h-52"><canvas id="barChart"></canvas></div>
+      </div>
+    </div>
+
+    <!-- 月度明细表 -->
+    <div class="card overflow-x-auto">
+      <p class="section-title">月度明细</p>
+      <table class="w-full text-xs text-gray-600 border-collapse">
+        <thead>
+          <tr class="text-gray-400 border-b border-gray-100">
+            <th class="py-2 pr-3 text-left font-medium">月份</th>
+            <th class="py-2 px-3 text-right font-medium">税前月薪</th>
+            <th class="py-2 px-3 text-right font-medium">社保（个人）</th>
+            <th class="py-2 px-3 text-right font-medium">公积金（个/司）</th>
+            <th class="py-2 px-3 text-right font-medium">当月税额</th>
+            <th class="py-2 pl-3 text-right font-medium">税后到手</th>
+          </tr>
+        </thead>
+        <tbody>
+          <template x-for="row in result.monthly_details" :key="row.month">
+            <tr class="border-b border-gray-50 hover:bg-gray-50">
+              <td class="py-1.5 pr-3" x-text="row.month + '月'"></td>
+              <td class="py-1.5 px-3 text-right" x-text="fmt(row.salary)"></td>
+              <td class="py-1.5 px-3 text-right text-orange-500"
+                x-text="fmt(row.insurance.total)"></td>
+              <td class="py-1.5 px-3 text-right text-blue-500"
+                x-text="fmt(row.housing_fund.employee + row.housing_fund.employer)"></td>
+              <td class="py-1.5 px-3 text-right text-red-500" x-text="fmt(row.tax)"></td>
+              <td class="py-1.5 pl-3 text-right font-semibold text-green-600"
+                x-text="fmt(row.after_tax_salary)"></td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </div>
+
+  </main>
+
+  <!-- 空状态 -->
+  <main class="flex-1 flex flex-col items-center justify-center text-center py-24" x-show="!result">
+    <div class="text-5xl mb-4">🧮</div>
+    <p class="text-gray-500 text-sm">填写左侧参数，点击「开始计算」</p>
+    <p class="text-gray-400 text-xs mt-1">支持自动优化月薪/年终奖拆分</p>
+  </main>
+
+</div>
+
+<script>
+function taxapp() {
+  return {
+    apiBase: '',
+    modes: [
+      { value: 'optimize', label: '自动优化' },
+      { value: 'salary',   label: '指定月薪' },
+      { value: 'bonus',    label: '指定年终奖' },
+      { value: 'both',     label: '两者固定' },
+    ],
+    deductions: [
+      { key: 'children_education',  label: '子女教育' },
+      { key: 'continuing_education', label: '继续教育' },
+      { key: 'serious_illness',     label: '大病医疗' },
+      { key: 'housing_loan_interest', label: '住房贷款利息' },
+      { key: 'housing_rent',        label: '住房租金' },
+      { key: 'elderly_support',     label: '赡养老人' },
+    ],
+    mode: 'optimize',
+    objective: 'cash',
+    income: { total: 300000, monthly: null, bonus: null },
+    presets: [],
+    presetSlug: '',
+    showSS: false,
+    cfg: {
+      basic_deduction: 60000,
+      social_security_base_min: 0,
+      social_security_base_limit: 0,
+      pension_rate: 0.08,
+      medical_rate: 0.02,
+      unemployment_rate: 0.005,
+      housing_fund_base_min: 0,
+      housing_fund_base_limit: 0,
+      housing_fund_employee_rate: 0.12,
+      housing_fund_employer_rate: 0.12,
+      children_education: 0,
+      continuing_education: 0,
+      serious_illness: 0,
+      housing_loan_interest: 0,
+      housing_rent: 0,
+      elderly_support: 0,
+      annual_additional_deduction: 0,
+    },
+    result: null,
+    loading: false,
+    error: null,
+    _pieChart: null,
+    _barChart: null,
+
+    async init() {
+      const data = await fetch(this.apiBase + '/api/presets').then(r => r.json());
+      this.presets = data;
+    },
+
+    async loadPreset() {
+      if (!this.presetSlug) return;
+      const data = await fetch(this.apiBase + `/api/presets/${this.presetSlug}`).then(r => r.json());
+      Object.assign(this.cfg, data);
+      this.showSS = true;
+    },
+
+    clearResult() {
+      this.result = null;
+      this.error = null;
+    },
+
+    async calculate() {
+      this.error = null;
+      this.loading = true;
+      try {
+        const body = {
+          mode: this.mode,
+          objective: this.objective,
+          config: { ...this.cfg },
+        };
+        if (this.mode !== 'both') body.total = this.income.total;
+        if (this.mode === 'salary' || this.mode === 'both') body.monthly = this.income.monthly;
+        if (this.mode === 'bonus'  || this.mode === 'both') body.bonus   = this.income.bonus;
+
+        const res = await fetch(this.apiBase + '/api/calculate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.detail || '计算失败');
+        }
+        this.result = await res.json();
+        this.$nextTick(() => this.drawCharts());
+      } catch (e) {
+        this.error = e.message;
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    fmt(v) {
+      if (v == null) return '—';
+      return Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+    },
+
+    fmtPct(v) {
+      return (v * 100).toFixed(2) + '%';
+    },
+
+    metricCards() {
+      if (!this.result) return [];
+      const r = this.result;
+      const nominal = (r.annual_salary || 0) + (r.bonus || 0);
+      return [
+        {
+          label: '名义收入',
+          value: '¥ ' + this.fmt(nominal),
+          sub: '月薪×12 + 年终奖',
+          color: 'text-gray-700',
+        },
+        {
+          label: '到手现金',
+          value: '¥ ' + this.fmt(r.net_take_home),
+          sub: '扣除个税与三险一金',
+          color: 'text-green-600',
+        },
+        {
+          label: '公积金入账',
+          value: '¥ ' + this.fmt(r.annual_provident_fund),
+          sub: '个人 + 单位，按月×12',
+          color: 'text-blue-500',
+        },
+        {
+          label: '现金 + 公积金',
+          value: '¥ ' + this.fmt(r.net_take_home_including_provident_fund),
+          sub: '含个人+单位公积金',
+          color: 'text-teal-600',
+        },
+        {
+          label: '全年个税',
+          value: '¥ ' + this.fmt(r.total_tax),
+          sub: '综合所得 + 年终奖',
+          color: 'text-red-500',
+        },
+        {
+          label: '税率',
+          value: this.fmtPct(r.effective_tax_rate),
+          sub: '个税 / 名义收入',
+          color: 'text-red-400',
+        },
+        {
+          label: '个人社保',
+          value: '¥ ' + this.fmt(r.annual_insurance),
+          sub: '养老 + 医疗 + 失业',
+          color: 'text-orange-500',
+        },
+        {
+          label: '广义税率',
+          value: this.fmtPct(r.effective_burden_rate),
+          sub: '（个税 + 社保）/ 名义收入',
+          color: 'text-purple-500',
+        },
+      ];
+    },
+
+    drawCharts() {
+      if (!this.result) return;
+      const r = this.result;
+
+      // 饼图：年度收入构成
+      const pieEl = document.getElementById('pieChart');
+      if (this._pieChart) this._pieChart.destroy();
+      this._pieChart = new Chart(pieEl, {
+        type: 'doughnut',
+        data: {
+          labels: ['到手现金', '个税', '个人三险', '个人公积金'],
+          datasets: [{
+            data: [r.net_take_home, r.total_tax, r.annual_insurance, r.annual_housing_fund_employee],
+            backgroundColor: ['#22c55e', '#ef4444', '#f97316', '#3b82f6'],
+            borderWidth: 0,
+          }],
+        },
+        options: {
+          cutout: '65%',
+          plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 11 } } } },
+        },
+      });
+
+      // 柱状图：月度到手
+      const barEl = document.getElementById('barChart');
+      if (this._barChart) this._barChart.destroy();
+      const months = r.monthly_details.map(d => d.month + '月');
+      const takehome = r.monthly_details.map(d => Math.round(d.after_tax_salary));
+      this._barChart = new Chart(barEl, {
+        type: 'bar',
+        data: {
+          labels: months,
+          datasets: [{
+            label: '税后到手',
+            data: takehome,
+            backgroundColor: '#6366f1',
+            borderRadius: 3,
+          }],
+        },
+        options: {
+          plugins: { legend: { display: false } },
+          scales: {
+            y: { ticks: { font: { size: 10 }, callback: v => '¥' + (v/1000).toFixed(0) + 'k' } },
+            x: { ticks: { font: { size: 10 } } },
+          },
+        },
+      });
+    },
+  };
+}
+</script>
+</body>
+</html>
