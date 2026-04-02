@@ -339,6 +339,8 @@
 
 <script>
 function taxapp() {
+  let _pieChart = null;
+  let _barChart = null;
   return {
     apiBase: '',
     modes: [
@@ -384,8 +386,6 @@ function taxapp() {
     loading: false,
     error: null,
     history: [],
-    _pieChart: null,
-    _barChart: null,
 
     async init() {
       const data = await fetch(this.apiBase + '/api/presets').then(r => r.json());
@@ -569,8 +569,8 @@ function taxapp() {
 
       // 饼图：年度收入构成
       const pieEl = document.getElementById('pieChart');
-      if (this._pieChart) this._pieChart.destroy();
-      this._pieChart = new Chart(pieEl, {
+      if (_pieChart) _pieChart.destroy();
+      _pieChart = new Chart(pieEl, {
         type: 'doughnut',
         data: {
           labels: ['到手现金', '个税', '个人三险', '个人公积金'],
@@ -588,10 +588,10 @@ function taxapp() {
 
       // 柱状图：月度到手
       const barEl = document.getElementById('barChart');
-      if (this._barChart) this._barChart.destroy();
+      if (_barChart) _barChart.destroy();
       const months = r.monthly_details.map(d => d.month + '月');
       const takehome = r.monthly_details.map(d => Math.round(d.after_tax_salary));
-      this._barChart = new Chart(barEl, {
+      _barChart = new Chart(barEl, {
         type: 'bar',
         data: {
           labels: months,
