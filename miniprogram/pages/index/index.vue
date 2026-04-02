@@ -132,12 +132,84 @@
       </button>
     </view>
 
+    <!-- 历史记录 -->
+    <view v-if="history.length > 0" class="card history-card">
+      <view class="history-header" @tap="showHistory = !showHistory">
+        <text class="section-title history-title">历史记录（{{ history.length }}）</text>
+        <text class="expand-text">{{ showHistory ? '收起 ∧' : '展开 ∨' }}</text>
+      </view>
+      <view v-if="showHistory">
+        <view class="divider" />
+        <view v-for="entry in history" :key="entry.id" class="history-row">
+          <view class="history-info" @tap="restoreHistory(entry)">
+            <text class="history-label">{{ entry.label }}</text>
+            <text class="history-time">{{ entry.at }}</text>
+          </view>
+          <text class="history-del" @tap.stop="deleteHistory(entry.id)">✕</text>
+        </view>
+        <view class="history-clear-wrap">
+          <text class="history-clear" @tap="clearHistory">清空全部</text>
+        </view>
+      </view>
+    </view>
+
   </scroll-view>
 </template>
 
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { api } from '../../utils/api.js'
+
+// ── 历史记录 ───────────────────────────────────
+const HISTORY_KEY = 'taxopt_history'
+const HISTORY_MAX = 20
+const history = ref([])
+const showHistory = ref(false)
+
+function _nowStr() {
+  const d = new Date()
+  const p = n => String(n).padStart(2, '0')
+  return `${p(d.getMonth() + 1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+}
+
+function saveHistory(params, result) {
+  const modeLabel = { optimize: '优化', salary: '指定月薪', bonus: '指定年终奖', both: '自定义' }
+  const nominal = (result.annual_salary || 0) + (result.bonus || 0)
+  const entry = {
+    id: Date.now(),
+    at: _nowStr(),
+    label: `${modeLabel[params.mode] || params.mode} · ¥${(nominal / 10000).toFixed(0)}万 · 到手¥${(result.net_take_home / 10000).toFixed(1)}万`,
+    params,
+    result,
+  }
+  const list = [entry, ...history.value].slice(0, HISTORY_MAX)
+  history.value = list
+  uni.setStorageSync(HISTORY_KEY, list)
+}
+
+function restoreHistory(entry) {
+  const p = entry.params
+  mode.value = p.mode
+  objectiveIndex.value = objectives.findIndex(o => o.value === (p.objective || 'cash'))
+  if (objectiveIndex.value < 0) objectiveIndex.value = 0
+  if (p.config) Object.assign(cfg, p.config)
+  if (p.total   != null) income.total   = p.total
+  if (p.monthly != null) income.monthly = p.monthly
+  if (p.bonus   != null) income.bonus   = p.bonus
+  uni.setStorageSync('taxopt_result', entry.result)
+  uni.navigateTo({ url: '/pages/result/result' })
+}
+
+function deleteHistory(id) {
+  const list = history.value.filter(e => e.id !== id)
+  history.value = list
+  uni.setStorageSync(HISTORY_KEY, list)
+}
+
+function clearHistory() {
+  history.value = []
+  uni.removeStorageSync(HISTORY_KEY)
+}
 
 // ── 模式 ──────────────────────────────────────
 const modes = [
@@ -164,6 +236,7 @@ const presetOptions = ref([{ slug: '', label: '自定义参数' }])
 const presetIndex = ref(0)
 
 onMounted(async () => {
+  history.value = uni.getStorageSync(HISTORY_KEY) || []
   try {
     const list = await api.getPresets()
     presets.value = list
@@ -238,6 +311,7 @@ async function calculate() {
   loading.value = true
   try {
     const result = await api.calculate(payload)
+    saveHistory(payload, result)
     uni.setStorageSync('taxopt_result', result)
     uni.navigateTo({ url: '/pages/result/result' })
   } catch (e) {
@@ -323,7 +397,7 @@ async function calculate() {
   color: #dc2626;
 }
 
-.btn-wrap { padding: 0 0 48rpx; }
+.btn-wrap { padding: 0 0 24rpx; }
 .btn-primary {
   width: 100%;
   height: 88rpx;
@@ -334,5 +408,50 @@ async function calculate() {
   border-radius: 16rpx;
   border: none;
   &[disabled] { background: #a5b4fc; }
+}
+
+// 历史记录
+.history-card { margin-bottom: 48rpx; }
+.history-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.history-title { margin-bottom: 0; }
+.history-row {
+  display: flex;
+  align-items: center;
+  padding: 16rpx 0;
+  border-bottom: 1rpx solid $border;
+  &:last-of-type { border-bottom: none; }
+}
+.history-info {
+  flex: 1;
+  padding-right: 16rpx;
+}
+.history-label {
+  font-size: 26rpx;
+  color: $text-base;
+  display: block;
+  margin-bottom: 6rpx;
+}
+.history-time {
+  font-size: 22rpx;
+  color: $text-muted;
+}
+.history-del {
+  font-size: 28rpx;
+  color: #d1d5db;
+  padding: 8rpx 12rpx;
+  &:active { color: #dc2626; }
+}
+.history-clear-wrap {
+  padding-top: 16rpx;
+  text-align: center;
+}
+.history-clear {
+  font-size: 24rpx;
+  color: #9ca3af;
+  &:active { color: #dc2626; }
 }
 </style>
