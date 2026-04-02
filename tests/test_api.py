@@ -397,3 +397,56 @@ class TestCalculateValidation:
             "config": bad_config,
         })
         assert r.status_code == 422
+
+
+# ──────────────────────────────────────────────
+# POST /api/export/excel
+# ──────────────────────────────────────────────
+
+class TestExportExcel:
+    def _calc_result(self):
+        r = client.post("/api/calculate", json={
+            "mode": "salary", "total": 300000, "monthly": 20000,
+            "config": FULL_CONFIG,
+        })
+        assert r.status_code == 200
+        return r.json()
+
+    def test_export_returns_200(self):
+        result = self._calc_result()
+        r = client.post("/api/export/excel", json={"result": result})
+        assert r.status_code == 200
+
+    def test_export_content_type_is_xlsx(self):
+        result = self._calc_result()
+        r = client.post("/api/export/excel", json={"result": result})
+        assert "spreadsheetml" in r.headers["content-type"]
+
+    def test_export_content_disposition_has_filename(self):
+        result = self._calc_result()
+        r = client.post("/api/export/excel", json={"result": result})
+        cd = r.headers.get("content-disposition", "")
+        assert "attachment" in cd
+        assert ".xlsx" in cd
+
+    def test_export_body_is_nonempty(self):
+        result = self._calc_result()
+        r = client.post("/api/export/excel", json={"result": result})
+        assert len(r.content) > 1000
+
+    def test_export_with_custom_title(self):
+        result = self._calc_result()
+        r = client.post("/api/export/excel", json={"result": result, "title": "测试标题"})
+        assert r.status_code == 200
+        assert r.status_code == 200
+        assert "attachment" in r.headers.get("content-disposition", "")
+
+    def test_export_with_bonus(self):
+        r_calc = client.post("/api/calculate", json={
+            "mode": "bonus", "total": 300000, "bonus": 60000,
+            "config": FULL_CONFIG,
+        })
+        result = r_calc.json()
+        r = client.post("/api/export/excel", json={"result": result})
+        assert r.status_code == 200
+        assert len(r.content) > 1000

@@ -2,13 +2,17 @@
 TaxOpt FastAPI 后端 — 薄封装 main.py 的计算逻辑，供网页前端调用。
 """
 
+import io
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Any, Dict, Literal, Optional
+from urllib.parse import quote
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Font, PatternFill
 from pydantic import BaseModel, field_validator, model_validator
 
 from main import (
@@ -275,3 +279,112 @@ def calculate(req: CalculateRequest):
         raise HTTPException(status_code=422, detail=str(e))
 
     return result
+
+
+# ──────────────────────────────────────────────
+# POST /api/export/excel
+# ──────────────────────────────────────────────
+
+class ExportRequest(BaseModel):
+    result: Dict[str, Any]
+    title: Optional[str] = None
+
+
+def _build_excel(result: Dict[str, Any], title: str) -> io.BytesIO:
+    wb = Workbook()
+
+    # ── 汇总页 ────────────────────────────────
+    ws = wb.active
+    ws.title = "汇总"
+
+    header_font  = Font(bold=True, size=12, color="FFFFFF")
+    header_fill  = PatternFill("solid", fgColor="4F46E5")
+    center       = Alignment(horizontal="center", vertical="center")
+    label_font   = Font(bold=True)
+
+    # 标题行
+    ws.merge_cells("A1:C1")
+    ws["A1"] = title
+    ws["A1"].font = Font(bold=True, size=14)
+    ws["A1"].alignment = center
+    ws.row_dimensions[1].height = 28
+
+    ws.append([])
+
+    # 列头
+    ws.append(["指标", "金额 / 比率"])
+    for cell in ws[ws.max_row]:
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = center
+
+    nominal = (result.get("annual_salary") or 0) + (result.get("bonus") or 0)
+    rows = [
+        ("名义收入",           nominal),
+        ("到手现金",           result.get("net_take_home")),
+        ("公积金入账（个人+单位）", result.get("annual_provident_fund")),
+        ("现金 + 公积金",      result.get("net_take_home_including_provident_fund")),
+        ("全年个税",           result.get("total_tax")),
+        ("税率",               f'{result.get("effective_tax_rate", 0)*100:.2f}%'),
+        ("个人社保（三险）",    result.get("annual_insurance")),
+        ("广义税率（个税+社保）", f'{result.get("effective_burden_rate", 0)*100:.2f}%'),
+    ]
+    if result.get("bonus"):
+        rows += [
+            ("年终奖",          result.get("bonus")),
+            ("年终奖个税",       result.get("bonus_tax")),
+            ("年终奖税后到手",   result.get("bonus_after_tax")),
+        ]
+
+    for label, value in rows:
+        ws.append([label, value])
+        ws.cell(ws.max_row, 1).font = label_font
+
+    ws.column_dimensions["A"].width = 28
+    ws.column_dimensions["B"].width = 20
+
+    # ── 月度明细页 ────────────────────────────
+    ws2 = wb.create_sheet("月度明细")
+    detail_headers = ["月份", "税前月薪", "个人三险", "个人公积金", "单位公积金", "当月税额", "税后到手", "广义税后到手"]
+    ws2.append(detail_headers)
+    for cell in ws2[1]:
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = center
+
+    for row in result.get("monthly_details", []):
+        ins = row.get("insurance", {})
+        hf  = row.get("housing_fund", {})
+        ws2.append([
+            f'{row["month"]}月',
+            row.get("salary"),
+            ins.get("total"),
+            hf.get("employee"),
+            hf.get("employer"),
+            row.get("tax"),
+            row.get("after_tax_salary"),
+            row.get("after_tax_including_provident_fund"),
+        ])
+
+    for col in ["A","B","C","D","E","F","G","H"]:
+        ws2.column_dimensions[col].width = 16
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf
+
+
+@app.post("/api/export/excel")
+def export_excel(req: ExportRequest):
+    nominal = (req.result.get("annual_salary") or 0) + (req.result.get("bonus") or 0)
+    title = req.title or f"个税税筹结果（名义收入 {nominal:,.0f} 元）"
+    buf = _build_excel(req.result, title)
+    filename = title + ".xlsx"
+    encoded = quote(filename, safe="")
+    headers = {"Content-Disposition": f"attachment; filename*=UTF-8''{encoded}"}
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers=headers,
+    )
