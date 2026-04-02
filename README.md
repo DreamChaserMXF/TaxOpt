@@ -13,11 +13,14 @@
 | `config.json`                     | **默认**计税参数（与 `main.py` 同目录；未指定 `-c` 时使用）                              |
 | `config.example.json`             | 配置模板（当前示例为 **浙江社保 + 杭州市区公积金** 常见 2025 口径，见下文说明）；可复制为 `config.json` 或 `-c` 指定   |
 | `presets/`                        | **直辖市 + 一二线城市** 等 **42** 套预设 JSON，命名 **`省拼音-市拼音`**（默认市区口径）；索引见 `presets/README.md`        |
+| `api.py`                          | **FastAPI** 后端：托管 `web/` 静态页、提供 `/api/*` 计算与预设接口（供浏览器前端调用）                         |
+| `web/`                            | 网页前端静态资源（`index.html` 等）                                                         |
 
 
 ## 环境
 
 - Python 3.8+，**标准库**（`argparse`、`json` 等）。
+- **网页服务**（`api.py` + `web/`）需额外安装：`pip install fastapi uvicorn`（测试 API 时还可装 `httpx`）。
 
 ## 配置文件（JSON）
 
@@ -119,6 +122,15 @@ python main.py both --monthly 月薪 --bonus 年终奖
 ```
 
 3. 输出税筹结果或测算结果：汇总（到手、税额、五险一金、占比）、**12 个月**明细、年终奖税额与税后。
+
+4. **网页服务**（浏览器界面 + 与 CLI 相同的计算接口）：在项目根目录执行：
+
+```bash
+pip install fastapi uvicorn   # 首次使用网页时安装依赖
+uvicorn api:app --reload --host 127.0.0.1 --port 8000
+```
+
+启动后在浏览器打开 **http://127.0.0.1:8000/** 使用前端页面；交互式 API 文档为 **http://127.0.0.1:8000/docs**。若端口被占用，可改用其他端口，例如 `--port 8001`（与仓库内 `.claude/launch.json` 调试配置一致）。
 
 
 ## 免责声明
