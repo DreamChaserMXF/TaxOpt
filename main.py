@@ -462,11 +462,22 @@ def print_result(
         else "个人所得税税筹规划结果（目标：全年到手最多）"
     )
     nominal_income = float(result.get("nominal_income", total_income))
+    extra_income = float(result.get("extra_income", 0))
+    stock_grants = result.get("stock_grants") or []
+    stock_grants_tax = result.get("stock_grants_tax") or []
+    stock_take_home = sum(stock_grants) - float(result.get("total_stock_tax", 0))
+    salary_plus_extra_take_home = float(result.get("salary_take_home", 0)) + extra_income
+    annual_insurance = float(result.get("annual_insurance", 0))
+    annual_housing_fund_employee = float(result.get("annual_housing_fund_employee", 0))
+    tax_plus_insurance_rate = (
+        (float(result.get("total_tax", 0)) + annual_insurance) / nominal_income
+        if nominal_income else 0.0
+    )
     print("=" * 100)
     print(title or default_title)
     print("=" * 100)
-    # 收入构成
-    print(f"\n全年名义收入: {nominal_income:,.2f} 元")
+    print("\n【收入结构】")
+    print(f"全年名义收入: {nominal_income:,.2f} 元")
     prefix_m = "推荐月薪" if recommend_wording else "月薪"
     prefix_b = "推荐年终奖" if recommend_wording else "年终奖"
     print(
@@ -474,25 +485,24 @@ def print_result(
         f"12个月税前总额: {result.get('annual_salary', 0):,.2f} 元"
     )
     print(f"{prefix_b}: {result.get('bonus', 0):,.2f} 元")
-    extra_income = float(result.get("extra_income", 0))
     if extra_income > 0:
         print(f"额外激励（并入综合所得）: {extra_income:,.2f} 元")
-    stock_grants = result.get("stock_grants") or []
-    stock_grants_tax = result.get("stock_grants_tax") or []
     if stock_grants:
-        print(f"股票激励（共 {len(stock_grants)} 笔）:")
-        for i, (g, gt) in enumerate(zip(stock_grants, stock_grants_tax), 1):
-            print(f"  第 {i} 笔: {g:,.2f} 元，税额: {gt:,.2f} 元，税后: {g - gt:,.2f} 元")
+        print(
+            f"股票激励: 共 {len(stock_grants)} 笔，合计 {sum(stock_grants):,.2f} 元"
+        )
     print("-" * 80)
-    # 到手收入
+    print("【到手收入】")
     print(
-        f"工资薪金部分到手（12个月税前 − 综合所得个税 − 全年个人五险一金）: "
-        f"{result.get('salary_take_home', 0):,.2f} 元"
+        f"工资薪金部分到手（含额外激励，并扣综合所得个税与个人五险一金）: "
+        f"{salary_plus_extra_take_home:,.2f} 元"
     )
     print(
         f"年终奖到手（年终奖 − 年终奖个税）: "
         f"{result.get('bonus_after_tax', 0):,.2f} 元"
     )
+    if stock_grants:
+        print(f"股票到手（股票激励 − 股票个税）: {stock_take_home:,.2f} 元")
     print(f"全年现金到手（名义收入 − 个税 − 个人五险一金）: {result.get('net_take_home', 0):,.2f} 元")
     apf = float(result.get("annual_provident_fund", 0))
     if apf > 0:
@@ -506,16 +516,16 @@ def print_result(
         if pf_mode:
             print("（以「现金+公积金」最大为目标）")
     print("-" * 80)
-    # 税额
+    print("【社保+个税】")
     print(f"综合所得（工资+额外激励）个税: {result.get('comprehensive_annual_tax', 0):,.2f} 元")
     print(f"年终奖个税: {result.get('bonus_tax', 0):,.2f} 元")
     if stock_grants:
         print(f"股票激励个税合计: {result.get('total_stock_tax', 0):,.2f} 元")
     print(f"全年总税额: {result.get('total_tax', 0):,.2f} 元")
-    print(f"全年个人五险一金: {result.get('annual_social_security', 0):,.2f} 元")
+    print(f"全年个人社保（三险）: {annual_insurance:,.2f} 元")
+    print(f"全年个人公积金: {annual_housing_fund_employee:,.2f} 元")
     print(f"个税占名义收入: {result.get('effective_tax_rate', 0) * 100:.2f}%")
-    print(f"个人五险一金占名义收入: {result.get('effective_social_security_rate', 0) * 100:.2f}%")
-    print(f"个税+个人五险一金占名义收入: {result.get('effective_burden_rate', 0) * 100:.2f}%")
+    print(f"个税+社保占名义收入: {tax_plus_insurance_rate * 100:.2f}%")
     if apf > 0 and nominal_income:
         print(
             f"公积金(个人+公司)占名义收入: {apf / nominal_income * 100:.2f}%"
@@ -525,6 +535,7 @@ def print_result(
 
     # 月度明细
     print("\n" + "-" * 100)
+    print("【月度明细】")
     print("月度明细（月薪部分）")
     print("-" * 100)
     print(
@@ -545,12 +556,23 @@ def print_result(
         )
 
     print("\n" + "-" * 100)
+    print("【年终奖明细】")
     print("年终奖明细")
     print("-" * 100)
     bonus = result.get("bonus", 0)
     print(f"年终奖金额: {bonus:,.2f} 元")
     print(f"年终奖税额: {result.get('bonus_tax', 0):,.2f} 元")
     print(f"年终奖税后金额: {result.get('bonus_after_tax', 0):,.2f} 元")
+
+    if stock_grants:
+        print("\n" + "-" * 100)
+        print("【股票明细】")
+        print("股票明细")
+        print("-" * 100)
+        for i, (g, gt) in enumerate(zip(stock_grants, stock_grants_tax), 1):
+            print(
+                f"第 {i} 笔: 税前 {g:,.2f} 元，税额 {gt:,.2f} 元，税后 {g - gt:,.2f} 元"
+            )
 
     print("=" * 100)
 
