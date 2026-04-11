@@ -1,7 +1,7 @@
 <template>
   <scroll-view scroll-y class="page">
 
-    <!-- 最优拆分提示（仅 optimize 模式显示） -->
+    <!-- 方案提示 -->
     <view v-if="r.bonus !== undefined && r.monthly_salary !== undefined" class="tip-box">
       <text class="tip-label">最优拆分方案</text>
       <text class="tip-value">月薪 {{ fmt(r.monthly_salary) }} 元 × 12 ＋ 年终奖 {{ fmt(r.bonus) }} 元</text>

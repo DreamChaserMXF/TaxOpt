@@ -17,15 +17,15 @@
     <!-- 收入输入 -->
     <view class="card">
       <text class="section-title">收入（元）</text>
-      <view v-if="mode !== 'both'" class="field">
+      <view v-if="mode !== 'calc'" class="field">
         <text class="label">全年名义收入</text>
         <input class="input-field" type="digit" v-model.number="income.total" placeholder="如 300000" />
       </view>
-      <view v-if="mode === 'salary' || mode === 'both'" class="field">
+      <view v-if="mode === 'calc'" class="field">
         <text class="label">月薪</text>
         <input class="input-field" type="digit" v-model.number="income.monthly" placeholder="如 20000" />
       </view>
-      <view v-if="mode === 'bonus' || mode === 'both'" class="field">
+      <view v-if="mode === 'calc'" class="field">
         <text class="label">年终奖</text>
         <input class="input-field" type="digit" v-model.number="income.bonus" placeholder="如 60000" />
       </view>
@@ -173,7 +173,7 @@ function _nowStr() {
 }
 
 function saveHistory(params, result) {
-  const modeLabel = { optimize: '优化', salary: '指定月薪', bonus: '指定年终奖', both: '自定义' }
+  const modeLabel = { optimize: '税筹优化', calc: '收入计算' }
   const nominal = (result.annual_salary || 0) + (result.bonus || 0)
   const entry = {
     id: Date.now(),
@@ -213,10 +213,8 @@ function clearHistory() {
 
 // ── 模式 ──────────────────────────────────────
 const modes = [
-  { value: 'optimize', label: '优化' },
-  { value: 'salary',   label: '月薪' },
-  { value: 'bonus',    label: '年终奖' },
-  { value: 'both',     label: '自定义' },
+  { value: 'optimize', label: '税筹优化' },
+  { value: 'calc',     label: '收入计算' },
 ]
 const mode = ref('optimize')
 
@@ -304,9 +302,9 @@ async function calculate() {
     objective: objectives[objectiveIndex.value].value,
     config: { ...cfg },
   }
-  if (mode.value !== 'both') payload.total = income.total
-  if (mode.value === 'salary' || mode.value === 'both') payload.monthly = income.monthly
-  if (mode.value === 'bonus'  || mode.value === 'both') payload.bonus   = income.bonus
+  if (mode.value !== 'calc') payload.total = income.total
+  if (mode.value === 'calc') payload.monthly = income.monthly
+  if (mode.value === 'calc') payload.bonus   = income.bonus
 
   loading.value = true
   try {

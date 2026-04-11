@@ -24,9 +24,8 @@ pytest tests/test_calculator.py -k "optimize"  # Single test by keyword
 ### Run CLI
 ```bash
 python main.py optimize -t 500000                  # Find optimal split for 500k total
-python main.py salary --total 500000 --monthly 20000
-python main.py bonus --total 500000 --bonus 100000
-python main.py both --monthly 20000 --bonus 100000
+python main.py optimize -t 500000 --extra-income 60000 --stock-grant 30000
+python main.py calc --monthly 20000 --bonus 100000
 python main.py --list-presets                      # Show 42 city presets
 python main.py --preset jiangsu-suzhou optimize -t 500000
 ```
@@ -69,7 +68,7 @@ presets/*.json + config.json — 42 city configs
 
 ### API Layer (`api.py`)
 
-Thin FastAPI wrapper. `_build_tax_config()` resolves either a `preset_slug` or custom `TaxConfigInput` into a `TaxConfig`, then delegates to `TaxCalculator`/`TaxOptimizer`. Four modes: `optimize`, `salary`, `bonus`, `both`.
+Thin FastAPI wrapper. `_build_tax_config()` resolves either a `preset_slug` or custom `TaxConfigInput` into a `TaxConfig`, then delegates to `TaxCalculator`/`TaxOptimizer`. Two modes: `optimize`, `calc`.
 
 ### Configuration
 

@@ -1,6 +1,6 @@
 # TaxOpt
 
-**个人所得税税筹与测算（示意工具）**：给定**全年名义收入**（12 个月工资 + 年终奖），在「月薪全年一致、年终奖单独计税、年终奖不计五险一金」等假设下，可**遍历**搜索使**全年到手**最高的拆分（`optimize` 下由 `--objective` 选择优化**现金**或**现金+公积金**），或**固定**月薪/年终奖之一后推算全年到手。
+**个人所得税税筹与测算（示意工具）**：给定**全年名义收入**（12 个月工资 + 年终奖），在「月薪全年一致、年终奖单独计税、年终奖不计五险一金」等假设下，可在 `optimize` 模式下**遍历**搜索使**全年到手**最高的拆分（由 `--objective` 选择优化**现金**或**现金+公积金**），或在 `calc` 模式下按**固定月薪 + 固定年终奖**测算全年到手。
 
 > 税率表与政策时点以代码为准；**不构成税务或法律建议**。
 
@@ -104,21 +104,16 @@ python main.py -c config.json optimize -t 500000
 
 # 按城市预设（文件名规则：省-市，见 presets/README.md）
 python main.py --list-presets
-python main.py --preset jiangsu-suzhou both -m 20000 -b 80000
+python main.py --preset jiangsu-suzhou calc -m 20000 -b 80000
 
-# 税筹：遍历月薪/年终奖（默认；未传 -t 时使用代码内默认全年收入）
+# 税筹优化：遍历月薪/年终奖（默认；未传 -t 时使用代码内默认全年收入）
 python main.py optimize [--total 全年收入]
 # 税筹目标为「现金+全年公积金」最大（默认 --objective cash 为纯现金到手最大）
 python main.py optimize -t 500000 --objective cash_plus_provident_fund
+python main.py optimize -t 500000 --extra-income 60000 --stock-grant 30000 --stock-grant 20000
 
-# 已知全年收入 + 月薪 → 反推年终奖并算全年到手
-python main.py salary --total 全年收入 --monthly 月薪
-
-# 已知全年收入 + 年终奖 → 反推月薪并算全年到手
-python main.py bonus --total 全年收入 --bonus 年终奖
-
-# 已知月薪 + 年终奖 → 全年名义收入=月薪×12+年终奖，再算全年到手
-python main.py both --monthly 月薪 --bonus 年终奖
+# 收入计算：已知月薪 + 年终奖 → 全年名义收入=月薪×12+年终奖，再算全年到手
+python main.py calc --monthly 月薪 --bonus 年终奖
 ```
 
 3. 输出税筹结果或测算结果：汇总（到手、税额、五险一金、占比）、**12 个月**明细、年终奖税额与税后。

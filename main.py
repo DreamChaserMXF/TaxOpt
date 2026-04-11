@@ -5,7 +5,7 @@
 可选：将个人与公司公积金按月缴存合计计入「广义到手」；个人/公司缴存比例可分别配置。
 optimize 模式的优化目标由命令行 `--objective` 指定（现金最大或现金+公积金最大）。
 
-命令行：python main.py [-c 配置文件 | --preset 省-市] [optimize|salary|bonus|both] ...
+命令行：python main.py [-c 配置文件 | --preset 省-市] [optimize|calc] ...
 未指定 -c 且未指定 --preset 时，读取与 main.py 同目录下的 config.json。
 预设位于 presets/ 目录，命名：省拼音-市拼音（默认各城「市区」主流口径，见 presets/README.md）。
 """
@@ -310,64 +310,69 @@ class TaxOptimizer:
         self.calc = calc
 
     def optimize(
-        self, total_annual: float, step: int = 1, objective: str = "cash"
+        self,
+        total_annual: float,
+        step: int = 1,
+        objective: str = "cash",
+        extra_income: float = 0.0,
+        stock_grants: Optional[List[float]] = None,
     ) -> Dict[str, Any]:
         validate_tax_config(self.calc.c)
+        if stock_grants is None:
+            stock_grants = []
         if step <= 0:
             raise ValueError(f"遍历步长 step 须为正整数，当前为 {step}")
         if total_annual < 0:
             raise ValueError("全年工资总额不能为负数")
+        if extra_income < 0:
+            raise ValueError("额外激励不能为负数")
+        if any(g < 0 for g in stock_grants):
+            raise ValueError("股票激励金额不能为负数")
+
+        stock_grants_total = sum(stock_grants)
+        salary_bonus_pool = total_annual - extra_income - stock_grants_total
+        if salary_bonus_pool < -0.01:
+            raise ValueError("额外激励与股票激励之和不能超过全年名义收入")
+        if salary_bonus_pool < 0:
+            salary_bonus_pool = 0.0
 
         best: Optional[Dict[str, Any]] = None
-        best_ins: Optional[Dict[str, float]] = None
-        best_hf: Optional[Dict[str, float]] = None
         best_net = float("-inf")
         best_tax_at_net = float("inf")
-        cap = int(total_annual // 12)
+        cap = int(salary_bonus_pool // 12)
+        total_stock_tax = sum(self.calc.bonus_tax(g) for g in stock_grants)
 
         use_pf_objective = objective == "cash_plus_provident_fund"
 
         for m in range(0, cap + 1, step):
-            bonus = total_annual - m * 12
+            bonus = salary_bonus_pool - m * 12
             if bonus < 0:
                 continue
             comp_tax, bonus_tax, annual_personal_deduction, annual_provident_fund_total, _ins, _hf = (
-                self.calc._calc_annual_tax(m, bonus)
+                self.calc._calc_annual_tax(m, bonus, extra_income)
             )
-            tax = comp_tax + bonus_tax
+            tax = comp_tax + bonus_tax + total_stock_tax
             net = total_annual - tax - annual_personal_deduction
-            salary_take = m * 12 - comp_tax - annual_personal_deduction
             score = net + annual_provident_fund_total if use_pf_objective else net
             if score > best_net or (score == best_net and tax < best_tax_at_net):
                 best_net = score
                 best_tax_at_net = tax
-                best_ins, best_hf = _ins, _hf
                 best = {
                     "monthly_salary": m,
-                    "annual_salary": m * 12,
                     "bonus": bonus,
-                    "comprehensive_annual_tax": comp_tax,
-                    "bonus_tax": bonus_tax,
-                    "total_tax": tax,
-                    "annual_social_security": annual_personal_deduction,
-                    "annual_insurance": _ins["total"] * 12,
-                    "annual_housing_fund_employee": _hf["employee"] * 12,
-                    "annual_provident_fund": annual_provident_fund_total,
-                    "salary_take_home": salary_take,
-                    "net_take_home": net,
-                    "effective_tax_rate": tax / total_annual if total_annual else 0.0,
-                    "effective_social_security_rate": annual_personal_deduction / total_annual if total_annual else 0.0,
-                    "effective_burden_rate": (tax + annual_personal_deduction) / total_annual if total_annual else 0.0,
                 }
 
         if not best:
             return {}
 
-        enrich_result_with_provident_fund(best)
-        b = best["bonus"]
-        best["monthly_details"] = self.calc.monthly_details(best["monthly_salary"], best_ins, best_hf)
-        best["bonus_after_tax"] = b - best["bonus_tax"]
-        return best
+        return result_from_salary_bonus_split(
+            self.calc,
+            salary_bonus_pool,
+            best["monthly_salary"],
+            best["bonus"],
+            extra_income=extra_income,
+            stock_grants=stock_grants,
+        )
 
 def adaptive_search_step(total_income: float) -> int:
     step = max(1, int(total_income / 1_000_000))
@@ -574,7 +579,7 @@ def list_presets() -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
-            "个人所得税：税筹优化或按给定拆分计算全年到手（扣个税与个人五险一金）；"
+            "个人所得税：税筹优化或按给定月薪+年终奖计算全年到手（扣个税与个人五险一金）；"
             "optimize 可用 --objective 选择以现金或「现金+公积金」最大为目标。"
         )
     )
@@ -582,10 +587,9 @@ def main() -> None:
         "mode",
         nargs="?",
         default="optimize",
-        choices=("optimize", "salary", "bonus", "both"),
+        choices=("optimize", "calc"),
         help=(
-            "optimize=遍历最优拆分；salary=全年+月薪；bonus=全年+年终奖；"
-            "both=月薪+年终奖（默认 optimize）"
+            "optimize=遍历最优拆分；calc=月薪+年终奖（默认 optimize）"
         ),
     )
     parser.add_argument(
@@ -600,14 +604,14 @@ def main() -> None:
         "-m",
         type=float,
         default=None,
-        help="月薪（salary 必填；both 与 --bonus 同时必填）",
+        help="月薪（calc 与 --bonus 同时必填）",
     )
     parser.add_argument(
         "--bonus",
         "-b",
         type=float,
         default=None,
-        help="年终奖（bonus 必填；both 与 --monthly 同时必填）",
+        help="年终奖（calc 与 --monthly 同时必填）",
     )
     parser.add_argument(
         "--step",
@@ -649,7 +653,7 @@ def main() -> None:
         type=float,
         default=0.0,
         metavar="金额",
-        help="额外激励金额，并入综合所得计税（salary/bonus/both 模式有效）",
+        help="额外激励金额，并入综合所得计税（optimize/calc 模式有效）",
     )
     parser.add_argument(
         "--stock-grant",
@@ -658,7 +662,7 @@ def main() -> None:
         default=None,
         dest="stock_grants",
         metavar="金额",
-        help="股票激励金额，每笔单独按年终奖方式计税；可多次指定（salary/bonus/both 模式有效）",
+        help="股票激励金额，每笔单独按年终奖方式计税；可多次指定（optimize/calc 模式有效）",
     )
     args = parser.parse_args()
     stock_grants = args.stock_grants or []
@@ -708,7 +712,13 @@ def main() -> None:
             total_income = args.total if args.total is not None else default_total
             step = args.step if args.step is not None else adaptive_search_step(total_income)
             print(f"每月工资搜索步长: {step}")
-            result = TaxOptimizer(calc).optimize(total_income, step, objective=args.objective)
+            result = TaxOptimizer(calc).optimize(
+                total_income,
+                step,
+                objective=args.objective,
+                extra_income=args.extra_income,
+                stock_grants=stock_grants,
+            )
             if result:
                 print_result(
                     result,
@@ -718,51 +728,9 @@ def main() -> None:
             else:
                 print("未找到优化方案")
 
-        elif args.mode == "salary":
-            if args.total is None or args.monthly is None:
-                parser.error("salary 模式需要 --total/-t 与 --monthly/-m")
-            total_income = args.total
-            monthly = args.monthly
-            bonus = total_income - monthly * 12
-            if bonus < -0.01:
-                parser.error("月薪×12 超过全年收入，无法拆分")
-            if bonus < 0:
-                bonus = 0.0  # 浮点误差范围内视为 0 年终奖
-            result = result_from_salary_bonus_split(
-                calc, total_income, monthly, bonus,
-                extra_income=args.extra_income, stock_grants=stock_grants,
-            )
-            print_result(
-                result,
-                total_income,
-                title="给定全年收入与月薪：全年税后所得（扣个税与五险一金）",
-                recommend_wording=False,
-            )
-
-        elif args.mode == "bonus":
-            if args.total is None or args.bonus is None:
-                parser.error("bonus 模式需要 --total/-t 与 --bonus/-b")
-            total_income = args.total
-            bonus = args.bonus
-            monthly = (total_income - bonus) / 12.0
-            if monthly < -0.01:
-                parser.error("年终奖超过全年收入，无法拆分")
-            if monthly < 0:
-                monthly = 0.0  # 浮点误差范围内视为无月薪部分
-            result = result_from_salary_bonus_split(
-                calc, total_income, monthly, bonus,
-                extra_income=args.extra_income, stock_grants=stock_grants,
-            )
-            print_result(
-                result,
-                total_income,
-                title="给定全年收入与年终奖：全年税后所得（扣个税与五险一金）",
-                recommend_wording=False,
-            )
-
-        else:  # both
+        else:  # calc
             if args.monthly is None or args.bonus is None:
-                parser.error("both 模式需要 --monthly/-m 与 --bonus/-b（全年收入=月薪×12+年终奖）")
+                parser.error("calc 模式需要 --monthly/-m 与 --bonus/-b（全年收入=月薪×12+年终奖）")
             monthly = args.monthly
             bonus = args.bonus
             if monthly < 0 or bonus < 0:

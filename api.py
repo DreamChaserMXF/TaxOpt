@@ -96,7 +96,7 @@ class TaxConfigInput(BaseModel):
 
 
 class CalculateRequest(BaseModel):
-    mode: Literal["optimize", "salary", "bonus", "both"]
+    mode: Literal["optimize", "calc"]
     total: Optional[float] = None
     monthly: Optional[float] = None
     bonus: Optional[float] = None
@@ -110,16 +110,8 @@ class CalculateRequest(BaseModel):
     def check_inputs(self):
         if self.config is None and self.preset_slug is None:
             raise ValueError("必须提供 config 或 preset_slug 之一")
-        if self.mode == "salary" and self.monthly is None:
-            raise ValueError("salary 模式需要 monthly")
-        if self.mode == "salary" and self.total is None:
-            raise ValueError("salary 模式需要 total")
-        if self.mode == "bonus" and self.bonus is None:
-            raise ValueError("bonus 模式需要 bonus")
-        if self.mode == "bonus" and self.total is None:
-            raise ValueError("bonus 模式需要 total")
-        if self.mode == "both" and (self.monthly is None or self.bonus is None):
-            raise ValueError("both 模式需要 monthly 和 bonus")
+        if self.mode == "calc" and (self.monthly is None or self.bonus is None):
+            raise ValueError("calc 模式需要 monthly 和 bonus")
         if self.mode == "optimize" and self.total is None:
             raise ValueError("optimize 模式需要 total")
         return self
@@ -249,33 +241,17 @@ def calculate(req: CalculateRequest):
         if req.mode == "optimize":
             total = req.total
             step = adaptive_search_step(total)
-            result = TaxOptimizer(calc).optimize(total, step, objective=req.objective)
+            result = TaxOptimizer(calc).optimize(
+                total,
+                step,
+                objective=req.objective,
+                extra_income=req.extra_income,
+                stock_grants=req.stock_grants,
+            )
             if not result:
                 raise HTTPException(status_code=422, detail="未找到优化方案")
 
-        elif req.mode == "salary":
-            total = req.total
-            monthly = req.monthly
-            bonus = total - monthly * 12
-            if bonus < -0.01:
-                raise HTTPException(status_code=422, detail="月薪×12 超过全年收入")
-            result = result_from_salary_bonus_split(
-                calc, total, monthly, max(bonus, 0.0),
-                extra_income=req.extra_income, stock_grants=req.stock_grants,
-            )
-
-        elif req.mode == "bonus":
-            total = req.total
-            bonus = req.bonus
-            monthly = (total - bonus) / 12.0
-            if monthly < -0.01:
-                raise HTTPException(status_code=422, detail="年终奖超过全年收入")
-            result = result_from_salary_bonus_split(
-                calc, total, max(monthly, 0.0), bonus,
-                extra_income=req.extra_income, stock_grants=req.stock_grants,
-            )
-
-        else:  # both
+        else:  # calc
             monthly = req.monthly
             bonus = req.bonus
             total = monthly * 12 + bonus

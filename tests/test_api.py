@@ -164,34 +164,34 @@ class TestPresetDetailEndpoint:
 class TestCalculateNumerics:
     """每个场景的期望值均经手工推导，与 test_calculator.py 中的场景对应。"""
 
-    def test_salary_mode_no_ss_total_tax(self):
+    def test_both_mode_no_ss_total_tax(self):
         """
-        场景 A：salary 模式，月薪 10000，无社保。
+        场景 A：calc 模式，月薪 10000，无社保。
         tax = 60000 × 10% − 2520 = 3480
         """
         r = client.post("/api/calculate", json={
-            "mode": "salary", "total": 120000, "monthly": 10000,
+            "mode": "calc", "monthly": 10000, "bonus": 0,
             "config": MINIMAL_CONFIG,
         })
         assert r.status_code == 200
         assert r.json()["total_tax"] == pytest.approx(3480.0)
 
-    def test_salary_mode_no_ss_net_take_home(self):
+    def test_both_mode_no_ss_net_take_home(self):
         """net_take_home = 120000 − 3480 = 116520"""
         r = client.post("/api/calculate", json={
-            "mode": "salary", "total": 120000, "monthly": 10000,
+            "mode": "calc", "monthly": 10000, "bonus": 0,
             "config": MINIMAL_CONFIG,
         })
         assert r.json()["net_take_home"] == pytest.approx(116520.0)
 
-    def test_salary_mode_with_ss_and_pf(self):
+    def test_both_mode_with_ss_and_pf(self):
         """
-        场景 B：salary 模式，月薪 20000，全额社保公积金。
+        场景 B：calc 模式，月薪 20000，全额社保公积金。
         annual_ss=54000, annual_pf=57600, tax=10080
         net_take_home=175920, net+pf=233520
         """
         r = client.post("/api/calculate", json={
-            "mode": "salary", "total": 240000, "monthly": 20000,
+            "mode": "calc", "monthly": 20000, "bonus": 0,
             "config": FULL_CONFIG,
         })
         assert r.status_code == 200
@@ -202,14 +202,14 @@ class TestCalculateNumerics:
         assert data["net_take_home"] == pytest.approx(175920.0)
         assert data["net_take_home_including_provident_fund"] == pytest.approx(233520.0)
 
-    def test_bonus_mode_with_year_end_bonus(self):
+    def test_both_mode_with_year_end_bonus(self):
         """
-        场景 C：bonus 模式，总收入 300000，年终奖 60000（月薪 20000）。
+        场景 C：calc 模式，年终奖 60000（月薪 20000）。
         bonus_tax = 5790, total_tax = 15870
         net_take_home = 230130, net+pf = 287730
         """
         r = client.post("/api/calculate", json={
-            "mode": "bonus", "total": 300000, "bonus": 60000,
+            "mode": "calc", "monthly": 20000, "bonus": 60000,
             "config": FULL_CONFIG,
         })
         assert r.status_code == 200
@@ -219,22 +219,8 @@ class TestCalculateNumerics:
         assert data["net_take_home"] == pytest.approx(230130.0)
         assert data["net_take_home_including_provident_fund"] == pytest.approx(287730.0)
 
-    def test_both_mode_matches_bonus_mode(self):
-        """both 模式传月薪+年终奖，结果应与 bonus 模式一致。"""
-        r_both = client.post("/api/calculate", json={
-            "mode": "both", "monthly": 20000, "bonus": 60000,
-            "config": FULL_CONFIG,
-        })
-        r_bonus = client.post("/api/calculate", json={
-            "mode": "bonus", "total": 300000, "bonus": 60000,
-            "config": FULL_CONFIG,
-        })
-        assert r_both.status_code == 200
-        for field in CARD_FIELDS:
-            assert r_both.json()[field] == pytest.approx(r_bonus.json()[field], abs=0.01)
-
     def test_optimize_mode_returns_valid_split(self):
-        """optimize 模式：月薪 × 12 + 年终奖 = 全年收入。"""
+        """optimize 模式：月薪 × 12 + 年终奖 = 可优化的工资奖金池。"""
         r = client.post("/api/calculate", json={
             "mode": "optimize", "total": 300000,
             "config": FULL_CONFIG,
@@ -254,6 +240,31 @@ class TestCalculateNumerics:
         for field in CARD_FIELDS:
             assert field in r.json()
 
+    def test_optimize_mode_subtracts_extra_income_and_stock_grants_before_optimization(self):
+        r = client.post("/api/calculate", json={
+            "mode": "optimize",
+            "total": 300000,
+            "extra_income": 20000,
+            "stock_grants": [30000, 10000],
+            "config": FULL_CONFIG,
+        })
+        assert r.status_code == 200
+        data = r.json()
+        assert data["monthly_salary"] * 12 + data["bonus"] == pytest.approx(240000.0, abs=0.01)
+        assert data["nominal_income"] == pytest.approx(300000.0)
+        assert data["extra_income"] == pytest.approx(20000.0)
+        assert data["stock_grants"] == [30000, 10000]
+
+    def test_optimize_mode_rejects_when_non_salary_income_exceeds_total(self):
+        r = client.post("/api/calculate", json={
+            "mode": "optimize",
+            "total": 300000,
+            "extra_income": 200000,
+            "stock_grants": [120000],
+            "config": FULL_CONFIG,
+        })
+        assert r.status_code == 422
+
 
 # ──────────────────────────────────────────────
 # POST /api/calculate — 指标卡片字段完整性
@@ -261,9 +272,7 @@ class TestCalculateNumerics:
 
 class TestCardFieldsInAPIResponse:
     @pytest.mark.parametrize("mode,extra", [
-        ("salary",   {"total": 300000, "monthly": 20000}),
-        ("bonus",    {"total": 300000, "bonus": 60000}),
-        ("both",     {"monthly": 20000, "bonus": 60000}),
+        ("calc",     {"monthly": 20000, "bonus": 60000}),
         ("optimize", {"total": 300000}),
     ])
     def test_all_card_fields_present(self, mode, extra):
@@ -275,9 +284,7 @@ class TestCardFieldsInAPIResponse:
             assert field in data, f"模式={mode} 缺少字段：{field}"
 
     @pytest.mark.parametrize("mode,extra", [
-        ("salary",   {"total": 300000, "monthly": 20000}),
-        ("bonus",    {"total": 300000, "bonus": 60000}),
-        ("both",     {"monthly": 20000, "bonus": 60000}),
+        ("calc",     {"monthly": 20000, "bonus": 60000}),
         ("optimize", {"total": 300000}),
     ])
     def test_cash_plus_pf_invariant(self, mode, extra):
@@ -290,7 +297,7 @@ class TestCardFieldsInAPIResponse:
     def test_response_contains_monthly_details(self):
         """响应应包含 12 条月度明细，供网页表格渲染。"""
         r = client.post("/api/calculate", json={
-            "mode": "salary", "total": 300000, "monthly": 20000,
+            "mode": "calc", "monthly": 20000, "bonus": 60000,
             "config": FULL_CONFIG,
         })
         data = r.json()
@@ -299,7 +306,7 @@ class TestCardFieldsInAPIResponse:
 
     def test_all_card_fields_non_negative(self):
         r = client.post("/api/calculate", json={
-            "mode": "salary", "total": 300000, "monthly": 20000,
+            "mode": "calc", "monthly": 20000, "bonus": 60000,
             "config": FULL_CONFIG,
         })
         data = r.json()
@@ -315,7 +322,7 @@ class TestCalculateWithPreset:
     def test_preset_slug_accepted(self):
         """通过 preset_slug 指定城市时，接口应正常返回结果。"""
         r = client.post("/api/calculate", json={
-            "mode": "salary", "total": 300000, "monthly": 20000,
+            "mode": "calc", "monthly": 20000, "bonus": 60000,
             "preset_slug": "zhejiang-hangzhou",
         })
         assert r.status_code == 200
@@ -323,7 +330,7 @@ class TestCalculateWithPreset:
     def test_preset_slug_overrides_config(self):
         """同时传 preset_slug 与 config 时，preset_slug 优先（或至少不报错）。"""
         r = client.post("/api/calculate", json={
-            "mode": "salary", "total": 300000, "monthly": 20000,
+            "mode": "calc", "monthly": 20000, "bonus": 60000,
             "preset_slug": "zhejiang-hangzhou",
             "config": MINIMAL_CONFIG,
         })
@@ -333,7 +340,7 @@ class TestCalculateWithPreset:
 
     def test_unknown_preset_slug_returns_422_or_404(self):
         r = client.post("/api/calculate", json={
-            "mode": "salary", "total": 300000, "monthly": 20000,
+            "mode": "calc", "monthly": 20000, "bonus": 60000,
             "preset_slug": "nonexistent-city-xyz",
         })
         assert r.status_code in (422, 404)
@@ -344,24 +351,16 @@ class TestCalculateWithPreset:
 # ──────────────────────────────────────────────
 
 class TestCalculateValidation:
-    def test_salary_mode_missing_monthly_returns_422(self):
-        """salary 模式缺少 monthly 字段时应返回 422。"""
+    def test_both_mode_missing_bonus_returns_422(self):
         r = client.post("/api/calculate", json={
-            "mode": "salary", "total": 300000,
+            "mode": "calc", "monthly": 20000,
             "config": MINIMAL_CONFIG,
         })
         assert r.status_code == 422
 
-    def test_bonus_mode_missing_bonus_returns_422(self):
+    def test_calc_mode_missing_monthly_returns_422(self):
         r = client.post("/api/calculate", json={
-            "mode": "bonus", "total": 300000,
-            "config": MINIMAL_CONFIG,
-        })
-        assert r.status_code == 422
-
-    def test_both_mode_missing_monthly_returns_422(self):
-        r = client.post("/api/calculate", json={
-            "mode": "both", "bonus": 60000,
+            "mode": "calc", "bonus": 60000,
             "config": MINIMAL_CONFIG,
         })
         assert r.status_code == 422
@@ -373,10 +372,22 @@ class TestCalculateValidation:
         })
         assert r.status_code == 422
 
+    @pytest.mark.parametrize("legacy_mode,payload", [
+        ("salary", {"total": 300000, "monthly": 20000}),
+        ("bonus", {"total": 300000, "bonus": 60000}),
+    ])
+    def test_legacy_modes_are_rejected(self, legacy_mode, payload):
+        r = client.post("/api/calculate", json={
+            "mode": legacy_mode,
+            "config": MINIMAL_CONFIG,
+            **payload,
+        })
+        assert r.status_code == 422
+
     def test_neither_config_nor_preset_returns_422(self):
         """既未传 config 也未传 preset_slug 时，应返回 422。"""
         r = client.post("/api/calculate", json={
-            "mode": "salary", "total": 300000, "monthly": 20000,
+            "mode": "calc", "monthly": 20000, "bonus": 60000,
         })
         assert r.status_code == 422
 
@@ -384,7 +395,7 @@ class TestCalculateValidation:
         """社保费率超出 [0,1] 时应被校验拒绝。"""
         bad_config = {**FULL_CONFIG, "pension_rate": 1.5}
         r = client.post("/api/calculate", json={
-            "mode": "salary", "total": 300000, "monthly": 20000,
+            "mode": "calc", "monthly": 20000, "bonus": 60000,
             "config": bad_config,
         })
         assert r.status_code == 422
@@ -393,7 +404,7 @@ class TestCalculateValidation:
         """社保基数下限 > 上限时应被校验拒绝。"""
         bad_config = {**FULL_CONFIG, "social_security_base_min": 30000, "social_security_base_limit": 10000}
         r = client.post("/api/calculate", json={
-            "mode": "salary", "total": 300000, "monthly": 20000,
+            "mode": "calc", "monthly": 20000, "bonus": 60000,
             "config": bad_config,
         })
         assert r.status_code == 422
@@ -406,7 +417,7 @@ class TestCalculateValidation:
 class TestExportExcel:
     def _calc_result(self):
         r = client.post("/api/calculate", json={
-            "mode": "salary", "total": 300000, "monthly": 20000,
+            "mode": "calc", "monthly": 20000, "bonus": 60000,
             "config": FULL_CONFIG,
         })
         assert r.status_code == 200
@@ -443,7 +454,7 @@ class TestExportExcel:
 
     def test_export_with_bonus(self):
         r_calc = client.post("/api/calculate", json={
-            "mode": "bonus", "total": 300000, "bonus": 60000,
+            "mode": "calc", "monthly": 20000, "bonus": 60000,
             "config": FULL_CONFIG,
         })
         result = r_calc.json()
