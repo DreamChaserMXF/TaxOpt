@@ -61,21 +61,27 @@
         <template x-if="mode !== 'both'">
           <div>
             <label class="label">全年名义收入（元）</label>
-            <input x-model.number="income.total" type="number" min="0" step="1000"
+            <input :value="income.total ?? ''"
+              @blur="income.total = $event.target.value === '' ? null : +$event.target.value"
+              type="text" inputmode="numeric"
               class="input-field" placeholder="如 300000">
           </div>
         </template>
         <template x-if="mode === 'salary' || mode === 'both'">
           <div>
             <label class="label">月薪（元/月）</label>
-            <input x-model.number="income.monthly" type="number" min="0" step="100"
+            <input :value="income.monthly ?? ''"
+              @blur="income.monthly = $event.target.value === '' ? null : +$event.target.value"
+              type="text" inputmode="numeric"
               class="input-field" placeholder="如 20000">
           </div>
         </template>
         <template x-if="mode === 'bonus' || mode === 'both'">
           <div>
             <label class="label">年终奖（元）</label>
-            <input x-model.number="income.bonus" type="number" min="0" step="1000"
+            <input :value="income.bonus ?? ''"
+              @blur="income.bonus = $event.target.value === '' ? null : +$event.target.value"
+              type="text" inputmode="numeric"
               class="input-field" placeholder="如 60000">
           </div>
         </template>
@@ -117,45 +123,78 @@
         <div class="grid grid-cols-2 gap-2">
           <div>
             <label class="label">社保基数下限</label>
-            <input x-model.number="cfg.social_security_base_min" type="number" min="0" class="input-field">
+            <input :value="cfg.social_security_base_min"
+              @blur="cfg.social_security_base_min = +$event.target.value || 0"
+              type="text" inputmode="numeric" class="input-field">
           </div>
           <div>
             <label class="label">社保基数上限</label>
-            <input x-model.number="cfg.social_security_base_limit" type="number" min="0" class="input-field">
+            <input :value="cfg.social_security_base_limit"
+              @blur="cfg.social_security_base_limit = +$event.target.value || 0"
+              type="text" inputmode="numeric" class="input-field">
           </div>
         </div>
         <div class="grid grid-cols-3 gap-2">
           <div>
-            <label class="label">养老 %</label>
-            <input x-model.number="cfg.pension_rate" type="number" min="0" max="1" step="0.001" class="input-field">
+            <label class="label">养老</label>
+            <div class="relative">
+              <input :value="cfg.pension_rate * 100"
+                @change="cfg.pension_rate = +$event.target.value / 100"
+                type="number" min="0" max="100" step="any" class="input-field pr-6">
+              <span class="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none">%</span>
+            </div>
           </div>
           <div>
-            <label class="label">医疗 %</label>
-            <input x-model.number="cfg.medical_rate" type="number" min="0" max="1" step="0.001" class="input-field">
+            <label class="label">医疗</label>
+            <div class="relative">
+              <input :value="cfg.medical_rate * 100"
+                @change="cfg.medical_rate = +$event.target.value / 100"
+                type="number" min="0" max="100" step="any" class="input-field pr-6">
+              <span class="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none">%</span>
+            </div>
           </div>
           <div>
-            <label class="label">失业 %</label>
-            <input x-model.number="cfg.unemployment_rate" type="number" min="0" max="1" step="0.001" class="input-field">
+            <label class="label">失业</label>
+            <div class="relative">
+              <input :value="cfg.unemployment_rate * 100"
+                @change="cfg.unemployment_rate = +$event.target.value / 100"
+                type="number" min="0" max="100" step="any" class="input-field pr-6">
+              <span class="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none">%</span>
+            </div>
           </div>
         </div>
         <div class="grid grid-cols-2 gap-2">
           <div>
             <label class="label">公积金基数下限</label>
-            <input x-model.number="cfg.housing_fund_base_min" type="number" min="0" class="input-field">
+            <input :value="cfg.housing_fund_base_min"
+              @blur="cfg.housing_fund_base_min = +$event.target.value || 0"
+              type="text" inputmode="numeric" class="input-field">
           </div>
           <div>
             <label class="label">公积金基数上限</label>
-            <input x-model.number="cfg.housing_fund_base_limit" type="number" min="0" class="input-field">
+            <input :value="cfg.housing_fund_base_limit"
+              @blur="cfg.housing_fund_base_limit = +$event.target.value || 0"
+              type="text" inputmode="numeric" class="input-field">
           </div>
         </div>
         <div class="grid grid-cols-2 gap-2">
           <div>
             <label class="label">个人公积金比例</label>
-            <input x-model.number="cfg.housing_fund_employee_rate" type="number" min="0" max="1" step="0.01" class="input-field">
+            <div class="relative">
+              <input :value="cfg.housing_fund_employee_rate * 100"
+                @change="cfg.housing_fund_employee_rate = +$event.target.value / 100"
+                type="number" min="0" max="100" step="any" class="input-field pr-6">
+              <span class="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none">%</span>
+            </div>
           </div>
           <div>
             <label class="label">单位公积金比例</label>
-            <input x-model.number="cfg.housing_fund_employer_rate" type="number" min="0" max="1" step="0.01" class="input-field">
+            <div class="relative">
+              <input :value="cfg.housing_fund_employer_rate * 100"
+                @change="cfg.housing_fund_employer_rate = +$event.target.value / 100"
+                type="number" min="0" max="100" step="any" class="input-field pr-6">
+              <span class="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none">%</span>
+            </div>
           </div>
         </div>
       </div>
@@ -361,17 +400,17 @@ function taxapp() {
     objective: 'cash',
     income: { total: 300000, monthly: null, bonus: null },
     presets: [],
-    presetSlug: '',
+    presetSlug: 'zhejiang-hangzhou',
     showSS: false,
     cfg: {
       basic_deduction: 60000,
-      social_security_base_min: 0,
-      social_security_base_limit: 0,
+      social_security_base_min: 4986,
+      social_security_base_limit: 25299,
       pension_rate: 0.08,
       medical_rate: 0.02,
       unemployment_rate: 0.005,
-      housing_fund_base_min: 0,
-      housing_fund_base_limit: 0,
+      housing_fund_base_min: 2490,
+      housing_fund_base_limit: 40694,
       housing_fund_employee_rate: 0.12,
       housing_fund_employer_rate: 0.12,
       children_education: 0,
