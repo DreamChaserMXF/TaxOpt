@@ -233,10 +233,11 @@ class TaxCalculator:
         return _progressive_tax(bonus, BONUS_BRACKETS_ANNUAL)
 
     def _calc_annual_tax(
-        self, monthly_salary: float, bonus: float
+        self, monthly_salary: float, bonus: float, extra_income: float = 0.0
     ) -> Tuple[float, float, float, float, Dict[str, float], Dict[str, float]]:
         """
         计算年度税额与缴纳金额，单月险费只算一次。
+        extra_income 为额外激励，并入综合所得一起计税。
         返回 (综合所得年税, 年终奖税, 年度个人三险一金合计, 年度公积金个人+公司合计,
               月度三险分项, 月度公积金分项)。
         """
@@ -246,6 +247,7 @@ class TaxCalculator:
         annual_provident_fund_total = (hf["employee"] + hf["employer"]) * 12
         taxable = (
             monthly_salary * 12
+            + extra_income
             - self.c.basic_deduction
             - self.annual_additional_total()
             - annual_personal_deduction
@@ -377,15 +379,24 @@ def result_from_salary_bonus_split(
     total_annual: float,
     monthly_salary: float,
     bonus: float,
+    extra_income: float = 0.0,
+    stock_grants: Optional[List[float]] = None,
 ) -> Dict[str, Any]:
     """
-    已知月薪、年终奖与全年名义收入，复用计税函数得到与 optimize 相同结构的结果字典。
-    要求：12*月薪 + 年终奖 ≈ 全年收入（允许 0.01 元浮点误差）。
+    已知月薪、年终奖与全年名义收入（月薪×12+年终奖部分），复用计税函数得到结果字典。
+    extra_income 并入综合所得计税；stock_grants 中每笔独立按年终奖方式单独计税。
+    要求：12*月薪 + 年终奖 ≈ total_annual（允许 0.01 元浮点误差）。
     """
+    if stock_grants is None:
+        stock_grants = []
     if total_annual < 0:
         raise ValueError("全年收入不能为负数")
     if monthly_salary < 0 or bonus < 0:
         raise ValueError("月薪、年终奖不能为负数")
+    if extra_income < 0:
+        raise ValueError("额外激励不能为负数")
+    if any(g < 0 for g in stock_grants):
+        raise ValueError("股票激励金额不能为负数")
     if not math.isclose(monthly_salary * 12 + bonus, total_annual, rel_tol=0, abs_tol=0.01):
         raise ValueError(
             f"拆分不一致：月薪×12 + 年终奖 = {monthly_salary * 12 + bonus:,.2f}，"
@@ -393,15 +404,24 @@ def result_from_salary_bonus_split(
         )
 
     comp_tax, bonus_tax, annual_personal_deduction, annual_provident_fund_total, ins, hf = (
-        calc._calc_annual_tax(monthly_salary, bonus)
+        calc._calc_annual_tax(monthly_salary, bonus, extra_income)
     )
-    tax = comp_tax + bonus_tax
-    net = total_annual - tax - annual_personal_deduction
+
+    stock_grants_tax = [calc.bonus_tax(g) for g in stock_grants]
+    total_stock_tax = sum(stock_grants_tax)
+
+    nominal_income = total_annual + extra_income + sum(stock_grants)
+    tax = comp_tax + bonus_tax + total_stock_tax
+    net = nominal_income - tax - annual_personal_deduction
     salary_take = monthly_salary * 12 - comp_tax - annual_personal_deduction
     out = {
         "monthly_salary": monthly_salary,
         "annual_salary": monthly_salary * 12,
         "bonus": bonus,
+        "extra_income": extra_income,
+        "stock_grants": stock_grants,
+        "stock_grants_tax": stock_grants_tax,
+        "total_stock_tax": total_stock_tax,
         "comprehensive_annual_tax": comp_tax,
         "bonus_tax": bonus_tax,
         "total_tax": tax,
@@ -411,9 +431,10 @@ def result_from_salary_bonus_split(
         "annual_provident_fund": annual_provident_fund_total,
         "salary_take_home": salary_take,
         "net_take_home": net,
-        "effective_tax_rate": tax / total_annual if total_annual else 0.0,
-        "effective_social_security_rate": annual_personal_deduction / total_annual if total_annual else 0.0,
-        "effective_burden_rate": (tax + annual_personal_deduction) / total_annual if total_annual else 0.0,
+        "nominal_income": nominal_income,
+        "effective_tax_rate": tax / nominal_income if nominal_income else 0.0,
+        "effective_social_security_rate": annual_personal_deduction / nominal_income if nominal_income else 0.0,
+        "effective_burden_rate": (tax + annual_personal_deduction) / nominal_income if nominal_income else 0.0,
         "bonus_after_tax": bonus - bonus_tax,
         "monthly_details": calc.monthly_details(monthly_salary, ins, hf),
     }
@@ -435,11 +456,12 @@ def print_result(
         if pf_mode
         else "个人所得税税筹规划结果（目标：全年到手最多）"
     )
+    nominal_income = float(result.get("nominal_income", total_income))
     print("=" * 100)
     print(title or default_title)
     print("=" * 100)
-    # 月薪、年终分配详情
-    print(f"\n全年工资总额: {total_income:,.2f} 元")
+    # 收入构成
+    print(f"\n全年名义收入: {nominal_income:,.2f} 元")
     prefix_m = "推荐月薪" if recommend_wording else "月薪"
     prefix_b = "推荐年终奖" if recommend_wording else "年终奖"
     print(
@@ -447,8 +469,17 @@ def print_result(
         f"12个月税前总额: {result.get('annual_salary', 0):,.2f} 元"
     )
     print(f"{prefix_b}: {result.get('bonus', 0):,.2f} 元")
+    extra_income = float(result.get("extra_income", 0))
+    if extra_income > 0:
+        print(f"额外激励（并入综合所得）: {extra_income:,.2f} 元")
+    stock_grants = result.get("stock_grants") or []
+    stock_grants_tax = result.get("stock_grants_tax") or []
+    if stock_grants:
+        print(f"股票激励（共 {len(stock_grants)} 笔）:")
+        for i, (g, gt) in enumerate(zip(stock_grants, stock_grants_tax), 1):
+            print(f"  第 {i} 笔: {g:,.2f} 元，税额: {gt:,.2f} 元，税后: {g - gt:,.2f} 元")
     print("-" * 80)
-    # 工资和年终奖到手收入
+    # 到手收入
     print(
         f"工资薪金部分到手（12个月税前 − 综合所得个税 − 全年个人五险一金）: "
         f"{result.get('salary_take_home', 0):,.2f} 元"
@@ -471,23 +502,25 @@ def print_result(
             print("（以「现金+公积金」最大为目标）")
     print("-" * 80)
     # 税额
-    print(f"综合所得（工资薪金）个税: {result.get('comprehensive_annual_tax', 0):,.2f} 元")
+    print(f"综合所得（工资+额外激励）个税: {result.get('comprehensive_annual_tax', 0):,.2f} 元")
     print(f"年终奖个税: {result.get('bonus_tax', 0):,.2f} 元")
+    if stock_grants:
+        print(f"股票激励个税合计: {result.get('total_stock_tax', 0):,.2f} 元")
     print(f"全年总税额: {result.get('total_tax', 0):,.2f} 元")
     print(f"全年个人五险一金: {result.get('annual_social_security', 0):,.2f} 元")
     print(f"个税占名义收入: {result.get('effective_tax_rate', 0) * 100:.2f}%")
     print(f"个人五险一金占名义收入: {result.get('effective_social_security_rate', 0) * 100:.2f}%")
     print(f"个税+个人五险一金占名义收入: {result.get('effective_burden_rate', 0) * 100:.2f}%")
-    if apf > 0 and total_income:
+    if apf > 0 and nominal_income:
         print(
-            f"公积金(个人+公司)占名义收入: {apf / total_income * 100:.2f}%"
+            f"公积金(个人+公司)占名义收入: {apf / nominal_income * 100:.2f}%"
         )
         ntip = float(result.get("net_take_home_including_provident_fund", 0))
-        print(f"（现金+公积金）到手占名义收入: {ntip / total_income * 100:.2f}%")
+        print(f"（现金+公积金）到手占名义收入: {ntip / nominal_income * 100:.2f}%")
 
     # 月度明细
     print("\n" + "-" * 100)
-    print("月度明细")
+    print("月度明细（月薪部分）")
     print("-" * 100)
     print(
         f"{'月份':<6} {'月薪':<8} {'个人三险一金':<8} {'公司+个人公积金':<12} "
@@ -611,7 +644,24 @@ def main() -> None:
             "cash_plus_provident_fund=现金+全年个人与公司公积金最大"
         ),
     )
+    parser.add_argument(
+        "--extra-income",
+        type=float,
+        default=0.0,
+        metavar="金额",
+        help="额外激励金额，并入综合所得计税（salary/bonus/both 模式有效）",
+    )
+    parser.add_argument(
+        "--stock-grant",
+        type=float,
+        action="append",
+        default=None,
+        dest="stock_grants",
+        metavar="金额",
+        help="股票激励金额，每笔单独按年终奖方式计税；可多次指定（salary/bonus/both 模式有效）",
+    )
     args = parser.parse_args()
+    stock_grants = args.stock_grants or []
 
     if args.list_presets:
         list_presets()
@@ -678,7 +728,10 @@ def main() -> None:
                 parser.error("月薪×12 超过全年收入，无法拆分")
             if bonus < 0:
                 bonus = 0.0  # 浮点误差范围内视为 0 年终奖
-            result = result_from_salary_bonus_split(calc, total_income, monthly, bonus)
+            result = result_from_salary_bonus_split(
+                calc, total_income, monthly, bonus,
+                extra_income=args.extra_income, stock_grants=stock_grants,
+            )
             print_result(
                 result,
                 total_income,
@@ -696,7 +749,10 @@ def main() -> None:
                 parser.error("年终奖超过全年收入，无法拆分")
             if monthly < 0:
                 monthly = 0.0  # 浮点误差范围内视为无月薪部分
-            result = result_from_salary_bonus_split(calc, total_income, monthly, bonus)
+            result = result_from_salary_bonus_split(
+                calc, total_income, monthly, bonus,
+                extra_income=args.extra_income, stock_grants=stock_grants,
+            )
             print_result(
                 result,
                 total_income,
@@ -712,7 +768,10 @@ def main() -> None:
             if monthly < 0 or bonus < 0:
                 parser.error("月薪、年终奖不能为负数")
             total_income = monthly * 12 + bonus
-            result = result_from_salary_bonus_split(calc, total_income, monthly, bonus)
+            result = result_from_salary_bonus_split(
+                calc, total_income, monthly, bonus,
+                extra_income=args.extra_income, stock_grants=stock_grants,
+            )
             print_result(
                 result,
                 total_income,

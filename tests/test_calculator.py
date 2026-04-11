@@ -492,6 +492,153 @@ class TestMonthlyDetails:
 # TaxOptimizer
 # ──────────────────────────────────────────────
 
+# ──────────────────────────────────────────────
+# 额外激励与股票激励
+# ──────────────────────────────────────────────
+
+class TestExtraIncomeAndStockGrants:
+    """
+    使用 minimal_config（零社保零公积金）隔离变量，专门验证额外激励与股票激励逻辑。
+    """
+
+    # ── 额外激励 (extra_income) ─────────────────────
+
+    def test_extra_income_increases_comprehensive_tax(self, minimal_config):
+        """
+        额外激励并入综合所得，应使综合所得税额增加。
+
+        月薪 10000，无年终奖，零社保。
+        base:    taxable = 120000 − 60000 = 60000；tax = 60000×10% − 2520 = 3480
+        extra=20000: taxable = 80000；tax = 80000×10% − 2520 = 5480
+        """
+        calc = TaxCalculator(minimal_config)
+        r = result_from_salary_bonus_split(calc, 120000, 10000, 0, extra_income=20000)
+        assert r["comprehensive_annual_tax"] == pytest.approx(5480.0)
+
+    def test_extra_income_does_not_affect_bonus_tax(self, minimal_config):
+        """额外激励不影响年终奖税额。"""
+        calc = TaxCalculator(minimal_config)
+        r = result_from_salary_bonus_split(calc, 120000, 10000, 0, extra_income=20000)
+        assert r["bonus_tax"] == pytest.approx(0.0)
+
+    def test_extra_income_included_in_nominal_income(self, minimal_config):
+        """nominal_income 含 extra_income。"""
+        calc = TaxCalculator(minimal_config)
+        r = result_from_salary_bonus_split(calc, 120000, 10000, 0, extra_income=20000)
+        assert r["nominal_income"] == pytest.approx(140000.0)
+
+    def test_extra_income_net_take_home(self, minimal_config):
+        """
+        net_take_home = nominal_income − total_tax − 社保
+        = 140000 − 5480 − 0 = 134520
+        """
+        calc = TaxCalculator(minimal_config)
+        r = result_from_salary_bonus_split(calc, 120000, 10000, 0, extra_income=20000)
+        assert r["net_take_home"] == pytest.approx(134520.0)
+
+    def test_extra_income_effective_rate_uses_nominal(self, minimal_config):
+        """effective_tax_rate 分母为 nominal_income（含 extra_income）。"""
+        calc = TaxCalculator(minimal_config)
+        r = result_from_salary_bonus_split(calc, 120000, 10000, 0, extra_income=20000)
+        assert r["effective_tax_rate"] == pytest.approx(5480.0 / 140000.0)
+
+    # ── 股票激励 (stock_grants) ─────────────────────
+
+    def test_single_stock_grant_tax(self, minimal_config):
+        """
+        单笔股票激励按年终奖方式计税。
+        60000 ∈ (36000, 144000]：60000×10% − 210 = 5790
+        """
+        calc = TaxCalculator(minimal_config)
+        r = result_from_salary_bonus_split(calc, 120000, 10000, 0, stock_grants=[60000])
+        assert len(r["stock_grants"]) == 1
+        assert r["stock_grants_tax"][0] == pytest.approx(5790.0)
+        assert r["total_stock_tax"] == pytest.approx(5790.0)
+
+    def test_single_stock_grant_net_take_home(self, minimal_config):
+        """
+        net_take_home = (120000 + 60000) − (3480 + 5790) − 0 = 170730
+        """
+        calc = TaxCalculator(minimal_config)
+        r = result_from_salary_bonus_split(calc, 120000, 10000, 0, stock_grants=[60000])
+        assert r["net_take_home"] == pytest.approx(170730.0)
+
+    def test_multiple_grants_taxed_independently(self, minimal_config):
+        """
+        两笔相同金额的股票激励独立计税，不合并。
+
+        各 60000：each tax = 5790，合计 11580
+        若合并为 120000：120000×10% − 210 = 11790（与独立不同，验证确实是独立计税）
+        """
+        calc = TaxCalculator(minimal_config)
+        r = result_from_salary_bonus_split(calc, 120000, 10000, 0, stock_grants=[60000, 60000])
+        assert r["stock_grants_tax"][0] == pytest.approx(5790.0)
+        assert r["stock_grants_tax"][1] == pytest.approx(5790.0)
+        assert r["total_stock_tax"] == pytest.approx(11580.0)
+        # 若合并，结果为 11790，独立计税节税 210 元
+        assert r["total_stock_tax"] != pytest.approx(11790.0)
+
+    def test_multiple_grants_nominal_income(self, minimal_config):
+        """nominal_income 含所有股票激励金额。"""
+        calc = TaxCalculator(minimal_config)
+        r = result_from_salary_bonus_split(calc, 120000, 10000, 0, stock_grants=[60000, 36000])
+        assert r["nominal_income"] == pytest.approx(216000.0)
+
+    def test_stock_grant_does_not_affect_comprehensive_tax(self, minimal_config):
+        """股票激励不并入综合所得，综合所得税不变。"""
+        calc = TaxCalculator(minimal_config)
+        r_base = result_from_salary_bonus_split(calc, 120000, 10000, 0)
+        r_grant = result_from_salary_bonus_split(calc, 120000, 10000, 0, stock_grants=[100000])
+        assert r_grant["comprehensive_annual_tax"] == pytest.approx(r_base["comprehensive_annual_tax"])
+
+    # ── 组合场景 ─────────────────────────────────
+
+    def test_combined_extra_income_and_stock_grant(self, minimal_config):
+        """
+        月薪 10000，extra=20000，stock=[60000]。
+
+        taxable = 120000 + 20000 − 60000 = 80000；comp_tax = 5480
+        stock_tax = 5790；total_tax = 11270
+        nominal = 120000 + 20000 + 60000 = 200000
+        net = 200000 − 11270 = 188730
+        """
+        calc = TaxCalculator(minimal_config)
+        r = result_from_salary_bonus_split(
+            calc, 120000, 10000, 0, extra_income=20000, stock_grants=[60000]
+        )
+        assert r["comprehensive_annual_tax"] == pytest.approx(5480.0)
+        assert r["total_stock_tax"] == pytest.approx(5790.0)
+        assert r["total_tax"] == pytest.approx(11270.0)
+        assert r["nominal_income"] == pytest.approx(200000.0)
+        assert r["net_take_home"] == pytest.approx(188730.0)
+
+    # ── 向后兼容 ──────────────────────────────────
+
+    def test_defaults_backward_compatible(self, minimal_config):
+        """不传新参数时，与原函数行为完全一致。"""
+        calc = TaxCalculator(minimal_config)
+        r = result_from_salary_bonus_split(calc, 120000, 10000, 0)
+        assert r["extra_income"] == 0.0
+        assert r["stock_grants"] == []
+        assert r["stock_grants_tax"] == []
+        assert r["total_stock_tax"] == 0.0
+        assert r["total_tax"] == pytest.approx(3480.0)
+        assert r["net_take_home"] == pytest.approx(116520.0)
+        assert r["nominal_income"] == pytest.approx(120000.0)
+
+    def test_negative_extra_income_raises(self, minimal_config):
+        """额外激励为负数时应抛出 ValueError。"""
+        calc = TaxCalculator(minimal_config)
+        with pytest.raises(ValueError, match="额外激励"):
+            result_from_salary_bonus_split(calc, 120000, 10000, 0, extra_income=-1)
+
+    def test_negative_stock_grant_raises(self, minimal_config):
+        """股票激励金额为负数时应抛出 ValueError。"""
+        calc = TaxCalculator(minimal_config)
+        with pytest.raises(ValueError, match="股票激励"):
+            result_from_salary_bonus_split(calc, 120000, 10000, 0, stock_grants=[-1000])
+
+
 class TestTaxOptimizer:
     def test_monthly_details_insurance_matches_best_salary(self, full_config):
         """

@@ -4,7 +4,7 @@ TaxOpt FastAPI 后端 — 薄封装 main.py 的计算逻辑，供网页前端调
 
 import io
 from pathlib import Path
-from typing import Any, Dict, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 from urllib.parse import quote
 
 from fastapi import FastAPI, HTTPException
@@ -101,6 +101,8 @@ class CalculateRequest(BaseModel):
     monthly: Optional[float] = None
     bonus: Optional[float] = None
     objective: Literal["cash", "cash_plus_provident_fund"] = "cash"
+    extra_income: float = 0.0
+    stock_grants: List[float] = []
     config: Optional[TaxConfigInput] = None
     preset_slug: Optional[str] = None
 
@@ -257,7 +259,10 @@ def calculate(req: CalculateRequest):
             bonus = total - monthly * 12
             if bonus < -0.01:
                 raise HTTPException(status_code=422, detail="月薪×12 超过全年收入")
-            result = result_from_salary_bonus_split(calc, total, monthly, max(bonus, 0.0))
+            result = result_from_salary_bonus_split(
+                calc, total, monthly, max(bonus, 0.0),
+                extra_income=req.extra_income, stock_grants=req.stock_grants,
+            )
 
         elif req.mode == "bonus":
             total = req.total
@@ -265,13 +270,19 @@ def calculate(req: CalculateRequest):
             monthly = (total - bonus) / 12.0
             if monthly < -0.01:
                 raise HTTPException(status_code=422, detail="年终奖超过全年收入")
-            result = result_from_salary_bonus_split(calc, total, max(monthly, 0.0), bonus)
+            result = result_from_salary_bonus_split(
+                calc, total, max(monthly, 0.0), bonus,
+                extra_income=req.extra_income, stock_grants=req.stock_grants,
+            )
 
         else:  # both
             monthly = req.monthly
             bonus = req.bonus
             total = monthly * 12 + bonus
-            result = result_from_salary_bonus_split(calc, total, monthly, bonus)
+            result = result_from_salary_bonus_split(
+                calc, total, monthly, bonus,
+                extra_income=req.extra_income, stock_grants=req.stock_grants,
+            )
 
     except HTTPException:
         raise
