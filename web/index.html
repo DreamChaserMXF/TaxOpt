@@ -65,27 +65,36 @@
           <div>
             <label class="label">全年名义收入（元）</label>
             <input :value="income.total ?? ''"
-              @blur="income.total = $event.target.value === '' ? null : +$event.target.value"
+              @blur="updateIncome('total', $event.target.value)"
+              @input="delete inputErrors.total"
               type="text" inputmode="numeric"
+              :class="inputErrors.total ? 'border-red-400' : ''"
               class="input-field" placeholder="如 300000">
+            <p x-show="inputErrors.total" class="mt-1 text-xs text-red-500" x-text="inputErrors.total"></p>
           </div>
         </template>
         <template x-if="mode === 'salary' || mode === 'both'">
           <div>
             <label class="label">月薪（元/月）</label>
             <input :value="income.monthly ?? ''"
-              @blur="income.monthly = $event.target.value === '' ? null : +$event.target.value"
+              @blur="updateIncome('monthly', $event.target.value)"
+              @input="delete inputErrors.monthly"
               type="text" inputmode="numeric"
+              :class="inputErrors.monthly ? 'border-red-400' : ''"
               class="input-field" placeholder="如 20000">
+            <p x-show="inputErrors.monthly" class="mt-1 text-xs text-red-500" x-text="inputErrors.monthly"></p>
           </div>
         </template>
         <template x-if="mode === 'bonus' || mode === 'both'">
           <div>
             <label class="label">年终奖（元）</label>
             <input :value="income.bonus ?? ''"
-              @blur="income.bonus = $event.target.value === '' ? null : +$event.target.value"
+              @blur="updateIncome('bonus', $event.target.value)"
+              @input="delete inputErrors.bonus"
               type="text" inputmode="numeric"
+              :class="inputErrors.bonus ? 'border-red-400' : ''"
               class="input-field" placeholder="如 60000">
+            <p x-show="inputErrors.bonus" class="mt-1 text-xs text-red-500" x-text="inputErrors.bonus"></p>
           </div>
         </template>
 
@@ -269,11 +278,15 @@
   <!-- ══════════════════ 右栏：结果 ══════════════════ -->
   <main class="flex-1 min-w-0 space-y-5" x-show="result" x-cloak>
 
-    <!-- 优化推荐 banner（仅 optimize 模式） -->
-    <template x-if="result && mode === 'optimize'">
-      <div class="bg-indigo-50 border border-indigo-200 rounded-xl px-5 py-4">
-        <p class="text-xs text-indigo-500 font-semibold uppercase tracking-wide mb-1">最优拆分方案</p>
-        <p class="text-base font-bold text-indigo-800">
+    <!-- 薪酬方案 banner（所有模式） -->
+    <template x-if="result">
+      <div :class="mode === 'optimize' ? 'bg-indigo-50 border-indigo-200' : 'bg-gray-50 border-gray-200'"
+           class="border rounded-xl px-5 py-4">
+        <p :class="mode === 'optimize' ? 'text-indigo-500' : 'text-gray-500'"
+           class="text-xs font-semibold uppercase tracking-wide mb-1"
+           x-text="mode === 'optimize' ? '最优拆分方案' : '薪酬方案'"></p>
+        <p :class="mode === 'optimize' ? 'text-indigo-800' : 'text-gray-800'"
+           class="text-base font-bold">
           月薪 <span x-text="fmt(result.monthly_salary)"></span> 元 × 12
           ＋ 年终奖 <span x-text="fmt(result.bonus)"></span> 元
         </p>
@@ -431,6 +444,7 @@ function taxapp() {
     result: null,
     loading: false,
     error: null,
+    inputErrors: {},
     history: [],
 
     async init() {
@@ -449,10 +463,46 @@ function taxapp() {
     clearResult() {
       this.result = null;
       this.error = null;
+      this.inputErrors = {};
+    },
+
+    updateIncome(field, value) {
+      if (value === '') {
+        this.income[field] = null;
+        delete this.inputErrors[field];
+      } else if (isNaN(+value)) {
+        this.income[field] = null;
+        this.inputErrors[field] = '请输入有效数字';
+      } else {
+        this.income[field] = +value;
+        delete this.inputErrors[field];
+      }
+    },
+
+    validateIncome() {
+      const errs = {};
+      const labels = { total: '全年名义收入', monthly: '月薪', bonus: '年终奖' };
+      const check = (field) => {
+        const v = this.income[field];
+        if (v == null) errs[field] = labels[field] + '为必填项';
+        else if (isNaN(v)) errs[field] = '请输入有效数字';
+      };
+      if (this.mode !== 'both') check('total');
+      if (this.mode === 'salary' || this.mode === 'both') check('monthly');
+      if (this.mode === 'bonus'  || this.mode === 'both') check('bonus');
+      return errs;
     },
 
     async calculate() {
       this.error = null;
+      this.inputErrors = {};
+
+      const errs = this.validateIncome();
+      if (Object.keys(errs).length > 0) {
+        this.inputErrors = errs;
+        return;
+      }
+
       this.loading = true;
       try {
         const body = {
@@ -471,7 +521,10 @@ function taxapp() {
         });
         if (!res.ok) {
           const err = await res.json();
-          throw new Error(err.detail || '计算失败');
+          const msg = Array.isArray(err.detail)
+            ? err.detail.map(e => e.msg).join('；')
+            : (err.detail || '计算失败');
+          throw new Error(msg);
         }
         this.result = await res.json();
         this.saveHistory(body, this.result);
