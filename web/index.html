@@ -323,22 +323,26 @@
       <div :class="mode === 'optimize' ? 'bg-indigo-50 border-indigo-200' : 'bg-gray-50 border-gray-200'"
            class="border rounded-xl px-5 py-4">
         <p :class="mode === 'optimize' ? 'text-indigo-500' : 'text-gray-500'"
-           class="text-xs font-semibold uppercase tracking-wide mb-1"
+           class="text-lg font-bold tracking-wide mb-2"
            x-text="mode === 'optimize' ? '最优拆分方案' : '薪酬方案'"></p>
+        <p :class="mode === 'optimize' ? 'text-indigo-700' : 'text-gray-700'"
+           class="text-base font-semibold mb-1.5">
+          全年名义收入 <span class="font-bold" x-text="fmt(result.nominal_income || ((result.annual_salary || 0) + (result.bonus || 0)))"></span> 元
+        </p>
         <p :class="mode === 'optimize' ? 'text-indigo-800' : 'text-gray-800'"
-           class="text-base font-bold">
+           class="text-sm font-semibold">
           月薪 <span x-text="fmt(result.monthly_salary)"></span> 元 × 12
           ＋ 年终奖 <span x-text="fmt(result.bonus)"></span> 元
         </p>
         <template x-if="result.extra_income > 0">
           <p :class="mode === 'optimize' ? 'text-indigo-600' : 'text-gray-600'"
-             class="text-sm mt-1">
+             class="text-sm font-semibold mt-1">
             ＋ 额外激励 <span x-text="fmt(result.extra_income)"></span> 元（并入综合所得计税）
           </p>
         </template>
         <template x-if="result.stock_grants && result.stock_grants.length > 0">
           <p :class="mode === 'optimize' ? 'text-indigo-600' : 'text-gray-600'"
-             class="text-sm mt-0.5">
+             class="text-sm font-semibold mt-0.5">
             ＋ 股票激励 <span x-text="result.stock_grants.length"></span> 笔，合计
             <span x-text="fmt(result.stock_grants.reduce((s, v) => s + v, 0))"></span> 元（各笔独立计税）
           </p>
@@ -508,7 +512,16 @@
 
   <!-- 空状态 -->
   <main class="flex-1 flex flex-col items-center justify-center text-center py-24" x-show="!result">
-    <div class="text-5xl mb-4">🧮</div>
+    <div class="mb-6 rounded-[28px] border border-slate-200 bg-gradient-to-br from-white via-slate-50 to-indigo-50/70 p-5 shadow-sm">
+      <svg class="w-32 h-32" viewBox="0 0 128 128" fill="none" aria-hidden="true">
+        <rect x="20" y="16" width="88" height="96" rx="24" fill="#F8FAFC"/>
+        <path d="M64 30C82.225 30 97 44.775 97 63H64V30Z" fill="#6366F1"/>
+        <path d="M97 63C97 81.225 82.225 96 64 96C45.775 96 31 81.225 31 63C31 53.888 34.694 45.639 40.665 39.665L64 63H97Z" fill="#C7D2FE"/>
+        <circle cx="64" cy="63" r="13" fill="#fff"/>
+        <rect x="34" y="88" width="60" height="6" rx="3" fill="#94A3B8"/>
+        <rect x="34" y="99" width="44" height="6" rx="3" fill="#CBD5E1"/>
+      </svg>
+    </div>
     <p class="text-gray-500 text-sm">填写左侧参数，点击「开始计算」</p>
     <p class="text-gray-400 text-xs mt-1">支持税筹优化与收入计算</p>
   </main>
