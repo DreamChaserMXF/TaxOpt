@@ -3,7 +3,7 @@
     {
       "path": "pages/index/index",
       "style": {
-        "navigationBarTitleText": "个税优化",
+        "navigationBarTitleText": "TaxOpt 个税计算",
         "navigationBarBackgroundColor": "#4f46e5",
         "navigationBarTextStyle": "white"
       }
@@ -12,6 +12,14 @@
       "path": "pages/result/result",
       "style": {
         "navigationBarTitleText": "计算结果",
+        "navigationBarBackgroundColor": "#4f46e5",
+        "navigationBarTextStyle": "white"
+      }
+    },
+    {
+      "path": "pages/history/index",
+      "style": {
+        "navigationBarTitleText": "历史记录",
         "navigationBarBackgroundColor": "#4f46e5",
         "navigationBarTextStyle": "white"
       }

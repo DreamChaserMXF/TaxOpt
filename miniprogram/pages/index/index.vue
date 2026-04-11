@@ -38,6 +38,32 @@
           </view>
         </picker>
       </view>
+
+      <view class="extra-wrap">
+        <view class="expand-toggle" @tap="showExtra = !showExtra">
+          <text class="expand-text">{{ showExtra ? '收起其他收入 ∧' : '添加其他收入（额外激励 / 股票激励）∨' }}</text>
+        </view>
+
+        <view v-if="showExtra" class="extra-panel">
+          <view class="field">
+            <text class="label">额外激励（元）</text>
+            <input class="input-field" type="digit" v-model.number="extraIncome" placeholder="0" />
+            <text class="field-tip">并入综合所得，与月薪合并计算累进税</text>
+          </view>
+
+          <view class="field">
+            <view class="stock-head">
+              <text class="label stock-label">股票激励（元，每笔独立按年终奖方式计税）</text>
+              <text class="stock-add" @tap="addStockGrant">＋ 添加</text>
+            </view>
+            <view v-if="stockGrants.length === 0" class="stock-empty">暂未添加股票激励</view>
+            <view v-for="(_, idx) in stockGrants" :key="idx" class="stock-row">
+              <input class="input-field stock-input" type="digit" v-model.number="stockGrants[idx]" :placeholder="`第 ${idx + 1} 笔`" />
+              <text class="stock-del" @tap="removeStockGrant(idx)">删除</text>
+            </view>
+          </view>
+        </view>
+      </view>
     </view>
 
     <!-- 城市预设 -->
@@ -134,22 +160,20 @@
 
     <!-- 历史记录 -->
     <view v-if="history.length > 0" class="card history-card">
-      <view class="history-header" @tap="showHistory = !showHistory">
-        <text class="section-title history-title">历史记录（{{ history.length }}）</text>
-        <text class="expand-text">{{ showHistory ? '收起 ∧' : '展开 ∨' }}</text>
+      <view class="history-header">
+        <text class="section-title history-title">最近记录（{{ history.length }}）</text>
+        <text v-if="history.length > RECENT_HISTORY_LIMIT" class="history-link" @tap="openHistoryPage">查看全部</text>
       </view>
-      <view v-if="showHistory">
-        <view class="divider" />
-        <view v-for="entry in history" :key="entry.id" class="history-row">
-          <view class="history-info" @tap="restoreHistory(entry)">
-            <text class="history-label">{{ entry.label }}</text>
-            <text class="history-time">{{ entry.at }}</text>
-          </view>
-          <text class="history-del" @tap.stop="deleteHistory(entry.id)">✕</text>
+      <view class="divider" />
+      <view v-for="entry in recentHistory" :key="entry.id" class="history-row">
+        <view class="history-info" @tap="restoreHistory(entry)">
+          <text class="history-label">{{ entry.label }}</text>
+          <text class="history-time">{{ entry.at }}</text>
         </view>
-        <view class="history-clear-wrap">
-          <text class="history-clear" @tap="clearHistory">清空全部</text>
-        </view>
+        <text class="history-del" @tap.stop="deleteHistory(entry.id)">✕</text>
+      </view>
+      <view class="history-clear-wrap">
+        <text class="history-clear" @tap="clearHistory">清空全部</text>
       </view>
     </view>
 
@@ -157,14 +181,19 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { computed, ref, reactive, onMounted } from 'vue'
+import { onShow } from '@dcloudio/uni-app'
 import { api } from '../../utils/api.js'
 
 // ── 历史记录 ───────────────────────────────────
 const HISTORY_KEY = 'taxopt_history'
+const RESULT_KEY = 'taxopt_result'
+const PREFILL_KEY = 'taxopt_prefill'
 const HISTORY_MAX = 20
+const RECENT_HISTORY_LIMIT = 3
 const history = ref([])
-const showHistory = ref(false)
+
+const recentHistory = computed(() => history.value.slice(0, RECENT_HISTORY_LIMIT))
 
 function _nowStr() {
   const d = new Date()
@@ -174,13 +203,14 @@ function _nowStr() {
 
 function saveHistory(params, result) {
   const modeLabel = { optimize: '税筹优化', calc: '收入计算' }
-  const nominal = (result.annual_salary || 0) + (result.bonus || 0)
+  const nominal = result.nominal_income || (result.annual_salary || 0) + (result.bonus || 0)
+  const resultWithMeta = { ...result, _mode: params.mode }
   const entry = {
     id: Date.now(),
     at: _nowStr(),
     label: `${modeLabel[params.mode] || params.mode} · ¥${(nominal / 10000).toFixed(0)}万 · 到手¥${(result.net_take_home / 10000).toFixed(1)}万`,
     params,
-    result,
+    result: resultWithMeta,
   }
   const list = [entry, ...history.value].slice(0, HISTORY_MAX)
   history.value = list
@@ -196,7 +226,10 @@ function restoreHistory(entry) {
   if (p.total   != null) income.total   = p.total
   if (p.monthly != null) income.monthly = p.monthly
   if (p.bonus   != null) income.bonus   = p.bonus
-  uni.setStorageSync('taxopt_result', entry.result)
+  extraIncome.value = p.extra_income || 0
+  stockGrants.value = p.stock_grants ? [...p.stock_grants] : []
+  showExtra.value = extraIncome.value > 0 || stockGrants.value.length > 0
+  uni.setStorageSync(RESULT_KEY, entry.result)
   uni.navigateTo({ url: '/pages/result/result' })
 }
 
@@ -209,6 +242,25 @@ function deleteHistory(id) {
 function clearHistory() {
   history.value = []
   uni.removeStorageSync(HISTORY_KEY)
+}
+
+function openHistoryPage() {
+  uni.navigateTo({ url: '/pages/history/index' })
+}
+
+function applyPrefill(params) {
+  if (!params) return
+  mode.value = params.mode || 'optimize'
+  objectiveIndex.value = objectives.findIndex(o => o.value === (params.objective || 'cash'))
+  if (objectiveIndex.value < 0) objectiveIndex.value = 0
+  if (params.config) Object.assign(cfg, params.config)
+  income.total = params.total ?? null
+  income.monthly = params.monthly ?? null
+  income.bonus = params.bonus ?? null
+  extraIncome.value = params.extra_income || 0
+  stockGrants.value = params.stock_grants ? [...params.stock_grants] : []
+  showExtra.value = extraIncome.value > 0 || stockGrants.value.length > 0
+  error.value = ''
 }
 
 // ── 模式 ──────────────────────────────────────
@@ -227,6 +279,17 @@ const onObjectiveChange = (e) => { objectiveIndex.value = e.detail.value }
 
 // ── 收入 ──────────────────────────────────────
 const income = reactive({ total: null, monthly: null, bonus: null })
+const showExtra = ref(false)
+const extraIncome = ref(0)
+const stockGrants = ref([])
+
+function addStockGrant() {
+  stockGrants.value.push(0)
+}
+
+function removeStockGrant(index) {
+  stockGrants.value.splice(index, 1)
+}
 
 // ── 城市预设 ──────────────────────────────────
 const presets = ref([])
@@ -244,6 +307,15 @@ onMounted(async () => {
     ]
   } catch (e) {
     // 加载失败时保留"自定义参数"选项，不阻断使用
+  }
+})
+
+onShow(() => {
+  history.value = uni.getStorageSync(HISTORY_KEY) || []
+  const pending = uni.getStorageSync(PREFILL_KEY)
+  if (pending) {
+    applyPrefill(pending)
+    uni.removeStorageSync(PREFILL_KEY)
   }
 })
 
@@ -295,12 +367,43 @@ const deductions = [
 const loading = ref(false)
 const error = ref('')
 
+function validateInput() {
+  if (mode.value !== 'calc' && (income.total == null || Number.isNaN(income.total))) {
+    return '请填写全年名义收入'
+  }
+  if (mode.value === 'calc' && (income.monthly == null || Number.isNaN(income.monthly))) {
+    return '请填写月薪'
+  }
+  if (mode.value === 'calc' && (income.bonus == null || Number.isNaN(income.bonus))) {
+    return '请填写年终奖'
+  }
+  if ((extraIncome.value || 0) < 0) {
+    return '额外激励不能为负数'
+  }
+  if (stockGrants.value.some(v => (Number(v) || 0) < 0)) {
+    return '股票激励不能为负数'
+  }
+  return ''
+}
+
 async function calculate() {
   error.value = ''
+  const validationError = validateInput()
+  if (validationError) {
+    error.value = validationError
+    return
+  }
+
+  const normalizedStockGrants = stockGrants.value
+    .map(v => Number(v) || 0)
+    .filter(v => v > 0)
+
   const payload = {
     mode: mode.value,
     objective: objectives[objectiveIndex.value].value,
     config: { ...cfg },
+    extra_income: extraIncome.value || 0,
+    stock_grants: normalizedStockGrants,
   }
   if (mode.value !== 'calc') payload.total = income.total
   if (mode.value === 'calc') payload.monthly = income.monthly
@@ -309,8 +412,9 @@ async function calculate() {
   loading.value = true
   try {
     const result = await api.calculate(payload)
-    saveHistory(payload, result)
-    uni.setStorageSync('taxopt_result', result)
+    const resultWithMeta = { ...result, _mode: mode.value }
+    saveHistory(payload, resultWithMeta)
+    uni.setStorageSync(RESULT_KEY, resultWithMeta)
     uni.navigateTo({ url: '/pages/result/result' })
   } catch (e) {
     error.value = e.message
@@ -373,8 +477,56 @@ async function calculate() {
 }
 .picker-arrow { color: $text-muted; font-size: 36rpx; }
 
+.extra-wrap {
+  border-top: 1rpx solid $border;
+  padding-top: 12rpx;
+}
+.extra-panel {
+  margin-top: 16rpx;
+}
 .expand-toggle { margin-top: 16rpx; }
 .expand-text { font-size: 24rpx; color: $primary; }
+.field-tip {
+  display: block;
+  margin-top: 8rpx;
+  font-size: 22rpx;
+  color: $text-muted;
+}
+.stock-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12rpx;
+  margin-bottom: 12rpx;
+}
+.stock-label {
+  flex: 1;
+  margin-bottom: 0;
+}
+.stock-add {
+  font-size: 24rpx;
+  color: $primary;
+  white-space: nowrap;
+}
+.stock-empty {
+  font-size: 24rpx;
+  color: $text-muted;
+  padding: 12rpx 0 4rpx;
+}
+.stock-row {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  margin-bottom: 12rpx;
+}
+.stock-input {
+  flex: 1;
+}
+.stock-del {
+  flex: none;
+  font-size: 24rpx;
+  color: #ef4444;
+}
 
 .deduction-row {
   display: flex;
@@ -416,6 +568,10 @@ async function calculate() {
   justify-content: space-between;
 }
 .history-title { margin-bottom: 0; }
+.history-link {
+  font-size: 24rpx;
+  color: $primary;
+}
 .history-row {
   display: flex;
   align-items: center;
