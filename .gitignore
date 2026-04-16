@@ -6,3 +6,12 @@ __pycache__/
 
 # Claude Code 本机私有设置
 .claude/settings.local.json
+.claude/worktrees/
+
+# Mini program local/build artifacts
+miniprogram/unpackage/
+miniprogram/.DS_Store
+miniprogram/project.private.config.json
+
+# macOS
+.DS_Store

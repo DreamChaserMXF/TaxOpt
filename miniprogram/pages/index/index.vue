@@ -73,10 +73,11 @@
         <text class="label">城市预设</text>
         <picker :range="presetOptions" range-key="label" :value="presetIndex" @change="onPresetChange">
           <view class="picker-row">
-            <text>{{ presetOptions[presetIndex]?.label || '加载中…' }}</text>
+            <text>{{ currentPresetLabel }}</text>
             <text class="picker-arrow">›</text>
           </view>
         </picker>
+        <text v-if="presetHint" class="field-tip">{{ presetHint }}</text>
       </view>
 
       <!-- 展开/收起参数 -->
@@ -122,11 +123,11 @@
         </view>
         <view class="field-row">
           <view class="field half">
-            <text class="label">个人公积金比例</text>
+            <text class="label">个人公积金比例 %</text>
             <input class="input-field" type="digit" v-model.number="cfg.housing_fund_employee_rate" />
           </view>
           <view class="field half">
-            <text class="label">单位公积金比例</text>
+            <text class="label">单位公积金比例 %</text>
             <input class="input-field" type="digit" v-model.number="cfg.housing_fund_employer_rate" />
           </view>
         </view>
@@ -136,13 +137,18 @@
     <!-- 专项附加扣除 -->
     <view class="card">
       <text class="section-title">专项附加扣除（月）</text>
-      <view v-for="d in deductions" :key="d.key" class="deduction-row">
-        <text class="deduction-label">{{ d.label }}</text>
-        <input class="input-field deduction-input" type="digit" v-model.number="cfg[d.key]" placeholder="0" />
+      <view class="expand-toggle deduction-toggle" @tap="showDeductions = !showDeductions">
+        <text class="expand-text">{{ showDeductions ? '收起专项附加扣除 ∧' : '展开专项附加扣除 ∨' }}</text>
       </view>
-      <view class="deduction-row">
-        <text class="deduction-label">其他年度扣除（全年）</text>
-        <input class="input-field deduction-input" type="digit" v-model.number="cfg.annual_additional_deduction" placeholder="0" />
+      <view v-if="showDeductions" class="deduction-panel">
+        <view v-for="d in deductions" :key="d.key" class="deduction-row">
+          <text class="deduction-label">{{ d.label }}</text>
+          <input class="input-field deduction-input" type="digit" v-model.number="cfg[d.key]" placeholder="0" />
+        </view>
+        <view class="deduction-row">
+          <text class="deduction-label">其他年度扣除（全年）</text>
+          <input class="input-field deduction-input" type="digit" v-model.number="cfg.annual_additional_deduction" placeholder="0" />
+        </view>
       </view>
     </view>
 
@@ -180,247 +186,389 @@
   </scroll-view>
 </template>
 
-<script setup>
-import { computed, ref, reactive, onMounted } from 'vue'
+<script>
+import { computed, ref, reactive, onMounted } from '@vue/composition-api'
 import { onShow } from '@dcloudio/uni-app'
 import { api } from '../../utils/api.js'
+import {
+  CUSTOM_PRESET_LABEL,
+  HANGZHOU_DEFAULT_CONFIG,
+  findNearestPresetSlug,
+} from '../../utils/preset-location.js'
 
-// ── 历史记录 ───────────────────────────────────
-const HISTORY_KEY = 'taxopt_history'
-const RESULT_KEY = 'taxopt_result'
-const PREFILL_KEY = 'taxopt_prefill'
-const HISTORY_MAX = 20
-const RECENT_HISTORY_LIMIT = 3
-const history = ref([])
-
-const recentHistory = computed(() => history.value.slice(0, RECENT_HISTORY_LIMIT))
-
-function _nowStr() {
-  const d = new Date()
-  const p = n => String(n).padStart(2, '0')
-  return `${p(d.getMonth() + 1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
-}
-
-function saveHistory(params, result) {
-  const modeLabel = { optimize: '税筹优化', calc: '收入计算' }
-  const nominal = result.nominal_income || (result.annual_salary || 0) + (result.bonus || 0)
-  const resultWithMeta = { ...result, _mode: params.mode }
-  const entry = {
-    id: Date.now(),
-    at: _nowStr(),
-    label: `${modeLabel[params.mode] || params.mode} · ¥${(nominal / 10000).toFixed(0)}万 · 到手¥${(result.net_take_home / 10000).toFixed(1)}万`,
-    params,
-    result: resultWithMeta,
-  }
-  const list = [entry, ...history.value].slice(0, HISTORY_MAX)
-  history.value = list
-  uni.setStorageSync(HISTORY_KEY, list)
-}
-
-function restoreHistory(entry) {
-  const p = entry.params
-  mode.value = p.mode
-  objectiveIndex.value = objectives.findIndex(o => o.value === (p.objective || 'cash'))
-  if (objectiveIndex.value < 0) objectiveIndex.value = 0
-  if (p.config) Object.assign(cfg, p.config)
-  if (p.total   != null) income.total   = p.total
-  if (p.monthly != null) income.monthly = p.monthly
-  if (p.bonus   != null) income.bonus   = p.bonus
-  extraIncome.value = p.extra_income || 0
-  stockGrants.value = p.stock_grants ? [...p.stock_grants] : []
-  showExtra.value = extraIncome.value > 0 || stockGrants.value.length > 0
-  uni.setStorageSync(RESULT_KEY, entry.result)
-  uni.navigateTo({ url: '/pages/result/result' })
-}
-
-function deleteHistory(id) {
-  const list = history.value.filter(e => e.id !== id)
-  history.value = list
-  uni.setStorageSync(HISTORY_KEY, list)
-}
-
-function clearHistory() {
-  history.value = []
-  uni.removeStorageSync(HISTORY_KEY)
-}
-
-function openHistoryPage() {
-  uni.navigateTo({ url: '/pages/history/index' })
-}
-
-function applyPrefill(params) {
-  if (!params) return
-  mode.value = params.mode || 'optimize'
-  objectiveIndex.value = objectives.findIndex(o => o.value === (params.objective || 'cash'))
-  if (objectiveIndex.value < 0) objectiveIndex.value = 0
-  if (params.config) Object.assign(cfg, params.config)
-  income.total = params.total ?? null
-  income.monthly = params.monthly ?? null
-  income.bonus = params.bonus ?? null
-  extraIncome.value = params.extra_income || 0
-  stockGrants.value = params.stock_grants ? [...params.stock_grants] : []
-  showExtra.value = extraIncome.value > 0 || stockGrants.value.length > 0
-  error.value = ''
-}
-
-// ── 模式 ──────────────────────────────────────
-const modes = [
-  { value: 'optimize', label: '税筹优化' },
-  { value: 'calc',     label: '收入计算' },
-]
-const mode = ref('optimize')
-
-const objectives = [
-  { value: 'cash',                   label: '最大化到手现金' },
-  { value: 'cash_plus_provident_fund', label: '最大化现金+公积金' },
-]
-const objectiveIndex = ref(0)
-const onObjectiveChange = (e) => { objectiveIndex.value = e.detail.value }
-
-// ── 收入 ──────────────────────────────────────
-const income = reactive({ total: null, monthly: null, bonus: null })
-const showExtra = ref(false)
-const extraIncome = ref(0)
-const stockGrants = ref([])
-
-function addStockGrant() {
-  stockGrants.value.push(0)
-}
-
-function removeStockGrant(index) {
-  stockGrants.value.splice(index, 1)
-}
-
-// ── 城市预设 ──────────────────────────────────
-const presets = ref([])
-const presetOptions = ref([{ slug: '', label: '自定义参数' }])
-const presetIndex = ref(0)
-
-onMounted(async () => {
-  history.value = uni.getStorageSync(HISTORY_KEY) || []
-  try {
-    const list = await api.getPresets()
-    presets.value = list
-    presetOptions.value = [
-      { slug: '', label: '自定义参数' },
-      ...list.map(p => ({ slug: p.slug, label: p.label })),
+export default {
+  setup() {
+    const RATE_KEYS = [
+      'pension_rate',
+      'medical_rate',
+      'unemployment_rate',
+      'housing_fund_employee_rate',
+      'housing_fund_employer_rate',
     ]
-  } catch (e) {
-    // 加载失败时保留"自定义参数"选项，不阻断使用
-  }
-})
 
-onShow(() => {
-  history.value = uni.getStorageSync(HISTORY_KEY) || []
-  const pending = uni.getStorageSync(PREFILL_KEY)
-  if (pending) {
-    applyPrefill(pending)
-    uni.removeStorageSync(PREFILL_KEY)
-  }
-})
+    function toDisplayPercent(value) {
+      const numeric = Number(value)
+      if (!Number.isFinite(numeric)) return 0
+      return numeric <= 1 ? numeric * 100 : numeric
+    }
 
-const onPresetChange = async (e) => {
-  presetIndex.value = e.detail.value
-  const selected = presetOptions.value[e.detail.value]
-  if (!selected?.slug) return
-  try {
-    const data = await api.getPreset(selected.slug)
-    Object.assign(cfg, data)
-    showParams.value = true
-  } catch (e) {
-    uni.showToast({ title: '预设加载失败', icon: 'none' })
-  }
-}
+    function toApiRatio(value) {
+      const numeric = Number(value)
+      if (!Number.isFinite(numeric)) return 0
+      return numeric / 100
+    }
 
-// ── 参数配置 ───────────────────────────────────
-const showParams = ref(false)
-const cfg = reactive({
-  basic_deduction: 60000,
-  social_security_base_min: 0,
-  social_security_base_limit: 0,
-  pension_rate: 0.08,
-  medical_rate: 0.02,
-  unemployment_rate: 0.005,
-  housing_fund_base_min: 0,
-  housing_fund_base_limit: 0,
-  housing_fund_employee_rate: 0.12,
-  housing_fund_employer_rate: 0.12,
-  children_education: 0,
-  continuing_education: 0,
-  serious_illness: 0,
-  housing_loan_interest: 0,
-  housing_rent: 0,
-  elderly_support: 0,
-  annual_additional_deduction: 0,
-})
+    function toDisplayConfig(config = {}) {
+      const next = { ...config }
+      RATE_KEYS.forEach((key) => {
+        next[key] = toDisplayPercent(next[key])
+      })
+      return next
+    }
 
-const deductions = [
-  { key: 'children_education',   label: '子女教育' },
-  { key: 'continuing_education', label: '继续教育' },
-  { key: 'serious_illness',      label: '大病医疗' },
-  { key: 'housing_loan_interest', label: '住房贷款利息' },
-  { key: 'housing_rent',         label: '住房租金' },
-  { key: 'elderly_support',      label: '赡养老人' },
-]
+    function toApiConfig(config = {}) {
+      const next = { ...config }
+      RATE_KEYS.forEach((key) => {
+        next[key] = toApiRatio(next[key])
+      })
+      return next
+    }
 
-// ── 计算 ──────────────────────────────────────
-const loading = ref(false)
-const error = ref('')
+    // ── 历史记录 ───────────────────────────────────
+    const HISTORY_KEY = 'taxopt_history'
+    const RESULT_KEY = 'taxopt_result'
+    const PREFILL_KEY = 'taxopt_prefill'
+    const HISTORY_MAX = 20
+    const RECENT_HISTORY_LIMIT = 3
+    const history = ref([])
 
-function validateInput() {
-  if (mode.value !== 'calc' && (income.total == null || Number.isNaN(income.total))) {
-    return '请填写全年名义收入'
-  }
-  if (mode.value === 'calc' && (income.monthly == null || Number.isNaN(income.monthly))) {
-    return '请填写月薪'
-  }
-  if (mode.value === 'calc' && (income.bonus == null || Number.isNaN(income.bonus))) {
-    return '请填写年终奖'
-  }
-  if ((extraIncome.value || 0) < 0) {
-    return '额外激励不能为负数'
-  }
-  if (stockGrants.value.some(v => (Number(v) || 0) < 0)) {
-    return '股票激励不能为负数'
-  }
-  return ''
-}
+    const recentHistory = computed(() => history.value.slice(0, RECENT_HISTORY_LIMIT))
 
-async function calculate() {
-  error.value = ''
-  const validationError = validateInput()
-  if (validationError) {
-    error.value = validationError
-    return
-  }
+    function _nowStr() {
+      const d = new Date()
+      const p = n => String(n).padStart(2, '0')
+      return `${p(d.getMonth() + 1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+    }
 
-  const normalizedStockGrants = stockGrants.value
-    .map(v => Number(v) || 0)
-    .filter(v => v > 0)
+    function saveHistory(params, result) {
+      const modeLabel = { optimize: '税筹优化', calc: '收入计算' }
+      const nominal = result.nominal_income || (result.annual_salary || 0) + (result.bonus || 0)
+      const resultWithMeta = { ...result, _mode: params.mode }
+      const entry = {
+        id: Date.now(),
+        at: _nowStr(),
+        label: `${modeLabel[params.mode] || params.mode} · ¥${(nominal / 10000).toFixed(0)}万 · 到手¥${(result.net_take_home / 10000).toFixed(1)}万`,
+        params,
+        result: resultWithMeta,
+      }
+      const list = [entry, ...history.value].slice(0, HISTORY_MAX)
+      history.value = list
+      uni.setStorageSync(HISTORY_KEY, list)
+    }
 
-  const payload = {
-    mode: mode.value,
-    objective: objectives[objectiveIndex.value].value,
-    config: { ...cfg },
-    extra_income: extraIncome.value || 0,
-    stock_grants: normalizedStockGrants,
-  }
-  if (mode.value !== 'calc') payload.total = income.total
-  if (mode.value === 'calc') payload.monthly = income.monthly
-  if (mode.value === 'calc') payload.bonus   = income.bonus
+    // ── 模式 ──────────────────────────────────────
+    const modes = [
+      { value: 'optimize', label: '税筹优化' },
+      { value: 'calc',     label: '收入计算' },
+    ]
+    const mode = ref('optimize')
 
-  loading.value = true
-  try {
-    const result = await api.calculate(payload)
-    const resultWithMeta = { ...result, _mode: mode.value }
-    saveHistory(payload, resultWithMeta)
-    uni.setStorageSync(RESULT_KEY, resultWithMeta)
-    uni.navigateTo({ url: '/pages/result/result' })
-  } catch (e) {
-    error.value = e.message
-  } finally {
-    loading.value = false
-  }
+    const objectives = [
+      { value: 'cash', label: '最大化到手现金' },
+      { value: 'cash_plus_provident_fund', label: '最大化现金+公积金' },
+    ]
+    const objectiveIndex = ref(0)
+    const onObjectiveChange = (e) => { objectiveIndex.value = e.detail.value }
+
+    // ── 收入 ──────────────────────────────────────
+    const income = reactive({ total: null, monthly: null, bonus: null })
+    const showExtra = ref(false)
+    const extraIncome = ref(0)
+    const stockGrants = ref([])
+
+    function addStockGrant() {
+      stockGrants.value.push(0)
+    }
+
+    function removeStockGrant(index) {
+      stockGrants.value.splice(index, 1)
+    }
+
+    // ── 参数配置 ───────────────────────────────────
+    const showParams = ref(false)
+    const showDeductions = ref(false)
+    const cfg = reactive(toDisplayConfig(HANGZHOU_DEFAULT_CONFIG))
+
+    const deductions = [
+      { key: 'children_education', label: '子女教育' },
+      { key: 'continuing_education', label: '继续教育' },
+      { key: 'serious_illness', label: '大病医疗' },
+      { key: 'housing_loan_interest', label: '住房贷款利息' },
+      { key: 'housing_rent', label: '住房租金' },
+      { key: 'elderly_support', label: '赡养老人' },
+    ]
+
+    // ── 城市预设 ──────────────────────────────────
+    const presets = ref([])
+    const presetOptions = ref([{ slug: '', label: CUSTOM_PRESET_LABEL }])
+    const presetIndex = ref(0)
+    const presetHint = ref('未开启定位时，默认使用杭州参数作为自定义基线')
+    const currentPresetLabel = computed(() => {
+      const selected = presetOptions.value[presetIndex.value]
+      return (selected && selected.label) || '加载中…'
+    })
+
+    function applyConfig(config) {
+      Object.assign(cfg, toDisplayConfig(HANGZHOU_DEFAULT_CONFIG), toDisplayConfig(config || {}))
+    }
+
+    function applyCustomDefaults(reasonText) {
+      applyConfig(HANGZHOU_DEFAULT_CONFIG)
+      updateDeductionExpandState()
+      presetIndex.value = 0
+      presetHint.value = reasonText || '当前为自定义参数，默认值与浙江杭州一致'
+    }
+
+    function updateDeductionExpandState() {
+      showDeductions.value = deductions.some(item => Number(cfg[item.key]) > 0) || Number(cfg.annual_additional_deduction) > 0
+    }
+
+    async function selectPresetBySlug(slug, hintText) {
+      const selectedIndex = presetOptions.value.findIndex(item => item.slug === slug)
+      if (selectedIndex < 0) {
+        applyCustomDefaults('定位城市不在候选列表中，已回落到自定义参数（默认杭州）')
+        return
+      }
+
+      try {
+        const data = await api.getPreset(slug)
+        applyConfig(data)
+        updateDeductionExpandState()
+        presetIndex.value = selectedIndex
+        presetHint.value = hintText || `已选择预设：${presetOptions.value[selectedIndex].label}`
+      } catch (error) {
+        applyCustomDefaults('城市预设加载失败，已回落到自定义参数（默认杭州）')
+      }
+    }
+
+    async function tryAutoSelectPreset() {
+      if (typeof uni.getLocation !== 'function') {
+        applyCustomDefaults('当前环境不支持定位，已使用自定义参数（默认杭州）')
+        return
+      }
+
+      try {
+        const location = await new Promise((resolve, reject) => {
+          uni.getLocation({
+            type: 'gcj02',
+            success: resolve,
+            fail: reject,
+          })
+        })
+
+        const nearestSlug = findNearestPresetSlug(
+          Number(location.latitude),
+          Number(location.longitude),
+          presets.value.map(item => item.slug),
+        )
+
+        if (!nearestSlug) {
+          applyCustomDefaults('未匹配到候选城市，已使用自定义参数（默认杭州）')
+          return
+        }
+
+        await selectPresetBySlug(nearestSlug, `已根据定位自动选择：${presetOptions.value.find(item => item.slug === nearestSlug).label}`)
+      } catch (error) {
+        applyCustomDefaults('未开启定位或定位失败，已使用自定义参数（默认杭州）')
+      }
+    }
+
+    function applyPrefill(params) {
+      if (!params) return
+      mode.value = params.mode || 'optimize'
+      objectiveIndex.value = objectives.findIndex(o => o.value === (params.objective || 'cash'))
+      if (objectiveIndex.value < 0) objectiveIndex.value = 0
+      if (params.config) applyConfig(params.config)
+      income.total = params.total ?? null
+      income.monthly = params.monthly ?? null
+      income.bonus = params.bonus ?? null
+      extraIncome.value = params.extra_income || 0
+      stockGrants.value = params.stock_grants ? [...params.stock_grants] : []
+      showExtra.value = extraIncome.value > 0 || stockGrants.value.length > 0
+      updateDeductionExpandState()
+      error.value = ''
+    }
+
+    onMounted(async () => {
+      history.value = uni.getStorageSync(HISTORY_KEY) || []
+      try {
+        const list = await api.getPresets()
+        presets.value = list
+        presetOptions.value = [
+          { slug: '', label: CUSTOM_PRESET_LABEL },
+          ...list.map(p => ({ slug: p.slug, label: p.label })),
+        ]
+        const pendingPrefill = uni.getStorageSync(PREFILL_KEY)
+        if (!pendingPrefill) {
+          await tryAutoSelectPreset()
+        }
+      } catch (e) {
+        applyCustomDefaults('城市预设加载失败，当前为自定义参数（默认杭州）')
+      }
+    })
+
+    onShow(() => {
+      history.value = uni.getStorageSync(HISTORY_KEY) || []
+      const pending = uni.getStorageSync(PREFILL_KEY)
+      if (pending) {
+        applyPrefill(pending)
+        uni.removeStorageSync(PREFILL_KEY)
+      }
+    })
+
+    const onPresetChange = async (e) => {
+      presetIndex.value = e.detail.value
+      const selected = presetOptions.value[e.detail.value]
+      if (!selected || !selected.slug) {
+        applyCustomDefaults('当前为自定义参数，默认值与浙江杭州一致')
+        return
+      }
+      try {
+        const data = await api.getPreset(selected.slug)
+        applyConfig(data)
+        updateDeductionExpandState()
+        presetHint.value = `已选择预设：${selected.label}`
+        showParams.value = true
+      } catch (error) {
+        uni.showToast({ title: '预设加载失败', icon: 'none' })
+      }
+    }
+
+    function restoreHistory(entry) {
+      const p = entry.params
+      mode.value = p.mode
+      objectiveIndex.value = objectives.findIndex(o => o.value === (p.objective || 'cash'))
+      if (objectiveIndex.value < 0) objectiveIndex.value = 0
+      if (p.config) applyConfig(p.config)
+      if (p.total != null) income.total = p.total
+      if (p.monthly != null) income.monthly = p.monthly
+      if (p.bonus != null) income.bonus = p.bonus
+      extraIncome.value = p.extra_income || 0
+      stockGrants.value = p.stock_grants ? [...p.stock_grants] : []
+      showExtra.value = extraIncome.value > 0 || stockGrants.value.length > 0
+      updateDeductionExpandState()
+      uni.setStorageSync(RESULT_KEY, entry.result)
+      uni.navigateTo({ url: '/pages/result/result' })
+    }
+
+    function deleteHistory(id) {
+      const list = history.value.filter(e => e.id !== id)
+      history.value = list
+      uni.setStorageSync(HISTORY_KEY, list)
+    }
+
+    function clearHistory() {
+      history.value = []
+      uni.removeStorageSync(HISTORY_KEY)
+    }
+
+    function openHistoryPage() {
+      uni.navigateTo({ url: '/pages/history/index' })
+    }
+
+    // ── 计算 ──────────────────────────────────────
+    const loading = ref(false)
+    const error = ref('')
+
+    function validateInput() {
+      if (mode.value !== 'calc' && (income.total == null || Number.isNaN(income.total))) {
+        return '请填写全年名义收入'
+      }
+      if (mode.value === 'calc' && (income.monthly == null || Number.isNaN(income.monthly))) {
+        return '请填写月薪'
+      }
+      if (mode.value === 'calc' && (income.bonus == null || Number.isNaN(income.bonus))) {
+        return '请填写年终奖'
+      }
+      if ((extraIncome.value || 0) < 0) {
+        return '额外激励不能为负数'
+      }
+      if (stockGrants.value.some(v => (Number(v) || 0) < 0)) {
+        return '股票激励不能为负数'
+      }
+      return ''
+    }
+
+    async function calculate() {
+      error.value = ''
+      const validationError = validateInput()
+      if (validationError) {
+        error.value = validationError
+        return
+      }
+
+      const normalizedStockGrants = stockGrants.value
+        .map(v => Number(v) || 0)
+        .filter(v => v > 0)
+
+      const payload = {
+        mode: mode.value,
+        objective: objectives[objectiveIndex.value].value,
+        config: toApiConfig(cfg),
+        extra_income: extraIncome.value || 0,
+        stock_grants: normalizedStockGrants,
+      }
+      if (mode.value !== 'calc') payload.total = income.total
+      if (mode.value === 'calc') payload.monthly = income.monthly
+      if (mode.value === 'calc') payload.bonus = income.bonus
+
+      loading.value = true
+      try {
+        const result = await api.calculate(payload)
+        const resultWithMeta = { ...result, _mode: mode.value }
+        saveHistory(payload, resultWithMeta)
+        uni.setStorageSync(RESULT_KEY, resultWithMeta)
+        uni.navigateTo({ url: '/pages/result/result' })
+      } catch (e) {
+        error.value = e.message
+      } finally {
+        loading.value = false
+      }
+    }
+
+    return {
+      RECENT_HISTORY_LIMIT,
+      history,
+      recentHistory,
+      modes,
+      mode,
+      objectives,
+      objectiveIndex,
+      onObjectiveChange,
+      income,
+      showExtra,
+      extraIncome,
+      stockGrants,
+      addStockGrant,
+      removeStockGrant,
+      presetOptions,
+      presetIndex,
+      currentPresetLabel,
+      presetHint,
+      onPresetChange,
+      showParams,
+      showDeductions,
+      cfg,
+      deductions,
+      loading,
+      error,
+      calculate,
+      restoreHistory,
+      deleteHistory,
+      clearHistory,
+      openHistoryPage,
+    }
+  },
 }
 </script>
 
@@ -534,6 +682,12 @@ async function calculate() {
   justify-content: space-between;
   margin-bottom: 16rpx;
 }
+.deduction-toggle {
+  margin-top: 0;
+}
+.deduction-panel {
+  margin-top: 16rpx;
+}
 .deduction-label { font-size: 26rpx; color: $text-base; flex: 1; }
 .deduction-input { width: 200rpx !important; flex: none; text-align: right; }
 
@@ -551,6 +705,11 @@ async function calculate() {
 .btn-primary {
   width: 100%;
   height: 88rpx;
+  padding: 0;
+  line-height: 88rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   background: $primary;
   color: #fff;
   font-size: 30rpx;

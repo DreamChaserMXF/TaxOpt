@@ -30,60 +30,74 @@
   </scroll-view>
 </template>
 
-<script setup>
-import { ref } from 'vue'
+<script>
+import { ref } from '@vue/composition-api'
 import { onShow } from '@dcloudio/uni-app'
 
-const HISTORY_KEY = 'taxopt_history'
-const RESULT_KEY = 'taxopt_result'
-const PREFILL_KEY = 'taxopt_prefill'
+export default {
+  setup() {
+    const HISTORY_KEY = 'taxopt_history'
+    const RESULT_KEY = 'taxopt_result'
+    const PREFILL_KEY = 'taxopt_prefill'
 
-const history = ref([])
+    const history = ref([])
 
-function refreshHistory() {
-  history.value = uni.getStorageSync(HISTORY_KEY) || []
-}
+    function refreshHistory() {
+      history.value = uni.getStorageSync(HISTORY_KEY) || []
+    }
 
-onShow(() => {
-  refreshHistory()
-})
+    onShow(() => {
+      refreshHistory()
+    })
 
-function openResult(entry) {
-  uni.setStorageSync(RESULT_KEY, entry.result)
-  uni.navigateTo({ url: '/pages/result/result' })
-}
+    function openResult(entry) {
+      uni.setStorageSync(RESULT_KEY, entry.result)
+      uni.navigateTo({ url: '/pages/result/result' })
+    }
 
-function editEntry(entry) {
-  uni.setStorageSync(PREFILL_KEY, entry.params)
-  uni.showToast({ title: '已回填到首页', icon: 'none' })
-  const pages = getCurrentPages()
-  if (pages.length > 1) {
-    uni.navigateBack()
-  } else {
-    uni.switchTab?.({ url: '/pages/index/index' })
-    uni.reLaunch({ url: '/pages/index/index' })
-  }
-}
+    function editEntry(entry) {
+      uni.setStorageSync(PREFILL_KEY, entry.params)
+      uni.showToast({ title: '已回填到首页', icon: 'none' })
+      const pages = getCurrentPages()
+      if (pages.length > 1) {
+        uni.navigateBack()
+      } else if (typeof uni.switchTab === 'function') {
+        uni.switchTab({ url: '/pages/index/index' })
+      } else {
+        uni.reLaunch({ url: '/pages/index/index' })
+      }
+    }
 
-function deleteHistory(id) {
-  const list = history.value.filter(entry => entry.id !== id)
-  history.value = list
-  uni.setStorageSync(HISTORY_KEY, list)
-}
+    function deleteHistory(id) {
+      const list = history.value.filter(entry => entry.id !== id)
+      history.value = list
+      uni.setStorageSync(HISTORY_KEY, list)
+    }
 
-function clearHistory() {
-  history.value = []
-  uni.removeStorageSync(HISTORY_KEY)
-  uni.showToast({ title: '历史记录已清空', icon: 'none' })
-}
+    function clearHistory() {
+      history.value = []
+      uni.removeStorageSync(HISTORY_KEY)
+      uni.showToast({ title: '历史记录已清空', icon: 'none' })
+    }
 
-function goBack() {
-  const pages = getCurrentPages()
-  if (pages.length > 1) {
-    uni.navigateBack()
-  } else {
-    uni.reLaunch({ url: '/pages/index/index' })
-  }
+    function goBack() {
+      const pages = getCurrentPages()
+      if (pages.length > 1) {
+        uni.navigateBack()
+      } else {
+        uni.reLaunch({ url: '/pages/index/index' })
+      }
+    }
+
+    return {
+      history,
+      openResult,
+      editEntry,
+      deleteHistory,
+      clearHistory,
+      goBack,
+    }
+  },
 }
 </script>
 

@@ -1,7 +1,14 @@
-import { createSSRApp } from 'vue'
+import Vue from 'vue'
+import VueCompositionAPI from '@vue/composition-api'
 import App from './App.vue'
 
-export function createApp() {
-  const app = createSSRApp(App)
-  return { app }
-}
+Vue.config.productionTip = false
+Vue.use(VueCompositionAPI)
+
+App.mpType = 'app'
+
+const app = new Vue({
+  ...App,
+})
+
+app.$mount()
