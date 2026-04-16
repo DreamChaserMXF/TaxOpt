@@ -318,12 +318,16 @@ export default {
       return (selected && selected.label) || '加载中…'
     })
 
-    function applyConfig(config) {
+    function applyPresetConfig(config) {
       Object.assign(cfg, toDisplayConfig(HANGZHOU_DEFAULT_CONFIG), toDisplayConfig(config || {}))
     }
 
+    function applySavedConfig(config) {
+      Object.assign(cfg, toDisplayConfig(HANGZHOU_DEFAULT_CONFIG), config || {})
+    }
+
     function applyCustomDefaults(reasonText) {
-      applyConfig(HANGZHOU_DEFAULT_CONFIG)
+      applyPresetConfig(HANGZHOU_DEFAULT_CONFIG)
       updateDeductionExpandState()
       presetIndex.value = 0
       presetHint.value = reasonText || '当前为自定义参数，默认值与浙江杭州一致'
@@ -342,7 +346,7 @@ export default {
 
       try {
         const data = await api.getPreset(slug)
-        applyConfig(data)
+        applyPresetConfig(data)
         updateDeductionExpandState()
         presetIndex.value = selectedIndex
         presetHint.value = hintText || `已选择预设：${presetOptions.value[selectedIndex].label}`
@@ -388,7 +392,7 @@ export default {
       mode.value = params.mode || 'optimize'
       objectiveIndex.value = objectives.findIndex(o => o.value === (params.objective || 'cash'))
       if (objectiveIndex.value < 0) objectiveIndex.value = 0
-      if (params.config) applyConfig(params.config)
+      if (params.config) applySavedConfig(params.config)
       income.total = params.total ?? null
       income.monthly = params.monthly ?? null
       income.bonus = params.bonus ?? null
@@ -435,7 +439,7 @@ export default {
       }
       try {
         const data = await api.getPreset(selected.slug)
-        applyConfig(data)
+        applyPresetConfig(data)
         updateDeductionExpandState()
         presetHint.value = `已选择预设：${selected.label}`
         showParams.value = true
@@ -449,7 +453,7 @@ export default {
       mode.value = p.mode
       objectiveIndex.value = objectives.findIndex(o => o.value === (p.objective || 'cash'))
       if (objectiveIndex.value < 0) objectiveIndex.value = 0
-      if (p.config) applyConfig(p.config)
+      if (p.config) applySavedConfig(p.config)
       if (p.total != null) income.total = p.total
       if (p.monthly != null) income.monthly = p.monthly
       if (p.bonus != null) income.bonus = p.bonus
@@ -511,22 +515,27 @@ export default {
         .map(v => Number(v) || 0)
         .filter(v => v > 0)
 
-      const payload = {
+      const requestPayload = {
         mode: mode.value,
         objective: objectives[objectiveIndex.value].value,
         config: toApiConfig(cfg),
         extra_income: extraIncome.value || 0,
         stock_grants: normalizedStockGrants,
       }
-      if (mode.value !== 'calc') payload.total = income.total
-      if (mode.value === 'calc') payload.monthly = income.monthly
-      if (mode.value === 'calc') payload.bonus = income.bonus
+      if (mode.value !== 'calc') requestPayload.total = income.total
+      if (mode.value === 'calc') requestPayload.monthly = income.monthly
+      if (mode.value === 'calc') requestPayload.bonus = income.bonus
+
+      const historyPayload = {
+        ...requestPayload,
+        config: { ...cfg },
+      }
 
       loading.value = true
       try {
-        const result = await api.calculate(payload)
+        const result = await api.calculate(requestPayload)
         const resultWithMeta = { ...result, _mode: mode.value }
-        saveHistory(payload, resultWithMeta)
+        saveHistory(historyPayload, resultWithMeta)
         uni.setStorageSync(RESULT_KEY, resultWithMeta)
         uni.navigateTo({ url: '/pages/result/result' })
       } catch (e) {
