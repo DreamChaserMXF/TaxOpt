@@ -23,6 +23,63 @@ from main import (
     COMPREHENSIVE_BRACKETS,
 )
 
+
+def brute_force_optimize(
+    calc: TaxCalculator,
+    total_annual: float,
+    step: int = 1,
+    objective: str = "cash",
+    extra_income: float = 0.0,
+    stock_grants=None,
+):
+    """参考穷举器：作为断点搜索优化器的真值基线。"""
+    if stock_grants is None:
+        stock_grants = []
+
+    stock_grants_total = sum(stock_grants)
+    salary_bonus_pool = total_annual - extra_income - stock_grants_total
+    if salary_bonus_pool < -0.01:
+        raise ValueError("额外激励与股票激励之和不能超过全年名义收入")
+    if salary_bonus_pool < 0:
+        salary_bonus_pool = 0.0
+
+    best = None
+    best_score = float("-inf")
+    best_tax_at_score = float("inf")
+    cap = int(salary_bonus_pool // 12)
+    total_stock_tax = sum(calc.bonus_tax(g) for g in stock_grants)
+    iterations = 0
+
+    for monthly_salary in range(0, cap + 1, step):
+        bonus = salary_bonus_pool - monthly_salary * 12
+        if bonus < 0:
+            continue
+
+        iterations += 1
+        comp_tax, bonus_tax, annual_personal_deduction, annual_pf_total, _ins, _hf = (
+            calc._calc_annual_tax(monthly_salary, bonus, extra_income)
+        )
+        total_tax = comp_tax + bonus_tax + total_stock_tax
+        net = total_annual - total_tax - annual_personal_deduction
+        score = net + annual_pf_total if objective == "cash_plus_provident_fund" else net
+
+        if score > best_score or (score == best_score and total_tax < best_tax_at_score):
+            best_score = score
+            best_tax_at_score = total_tax
+            best = (monthly_salary, bonus)
+
+    assert best is not None, "穷举参考器未找到任何候选方案"
+    result = result_from_salary_bonus_split(
+        calc,
+        salary_bonus_pool,
+        best[0],
+        best[1],
+        extra_income=extra_income,
+        stock_grants=stock_grants,
+    )
+    result["_iterations"] = iterations
+    return result
+
 # ──────────────────────────────────────────────
 # Fixtures
 # ──────────────────────────────────────────────
@@ -663,3 +720,105 @@ class TestTaxOptimizer:
             assert row["insurance"]["total"] == pytest.approx(expected_ins["total"])
             assert row["housing_fund"]["employee"] == pytest.approx(expected_hf["employee"])
             assert row["housing_fund"]["employer"] == pytest.approx(expected_hf["employer"])
+
+    @pytest.mark.parametrize("total_annual", [120000, 200000, 300000, 500000])
+    def test_optimize_matches_bruteforce_for_cash_objective(self, full_config, total_annual):
+        calc = TaxCalculator(full_config)
+        optimized = TaxOptimizer(calc).optimize(total_annual, step=1, objective="cash")
+        brute = brute_force_optimize(calc, total_annual, step=1, objective="cash")
+
+        assert optimized["monthly_salary"] == brute["monthly_salary"]
+        assert optimized["bonus"] == pytest.approx(brute["bonus"])
+        assert optimized["total_tax"] == pytest.approx(brute["total_tax"])
+        assert optimized["net_take_home"] == pytest.approx(brute["net_take_home"])
+
+    @pytest.mark.parametrize("total_annual", [300000, 500000, 1000000])
+    def test_optimize_matches_bruteforce_for_cash_plus_pf_objective(self, full_config, total_annual):
+        calc = TaxCalculator(full_config)
+        optimized = TaxOptimizer(calc).optimize(
+            total_annual,
+            step=1,
+            objective="cash_plus_provident_fund",
+        )
+        brute = brute_force_optimize(
+            calc,
+            total_annual,
+            step=1,
+            objective="cash_plus_provident_fund",
+        )
+
+        assert optimized["monthly_salary"] == brute["monthly_salary"]
+        assert optimized["bonus"] == pytest.approx(brute["bonus"])
+        assert optimized["net_take_home_including_provident_fund"] == pytest.approx(
+            brute["net_take_home_including_provident_fund"]
+        )
+
+    @pytest.mark.parametrize("step", [1, 37, 1000])
+    def test_optimize_matches_bruteforce_across_steps(self, hangzhou_config, step):
+        calc = TaxCalculator(hangzhou_config)
+        total_annual = 500000
+
+        optimized = TaxOptimizer(calc).optimize(total_annual, step=step, objective="cash")
+        brute = brute_force_optimize(calc, total_annual, step=step, objective="cash")
+
+        assert optimized["monthly_salary"] == brute["monthly_salary"]
+        assert optimized["bonus"] == pytest.approx(brute["bonus"])
+        assert optimized["net_take_home"] == pytest.approx(brute["net_take_home"])
+
+    def test_optimize_matches_bruteforce_with_extra_income_and_stock_grants(self, minimal_config):
+        calc = TaxCalculator(minimal_config)
+        total_annual = 500000
+        extra_income = 60000
+        stock_grants = [30000, 50000]
+
+        optimized = TaxOptimizer(calc).optimize(
+            total_annual,
+            step=1,
+            objective="cash",
+            extra_income=extra_income,
+            stock_grants=stock_grants,
+        )
+        brute = brute_force_optimize(
+            calc,
+            total_annual,
+            step=1,
+            objective="cash",
+            extra_income=extra_income,
+            stock_grants=stock_grants,
+        )
+
+        assert optimized["monthly_salary"] == brute["monthly_salary"]
+        assert optimized["bonus"] == pytest.approx(brute["bonus"])
+        assert optimized["total_tax"] == pytest.approx(brute["total_tax"])
+        assert optimized["net_take_home"] == pytest.approx(brute["net_take_home"])
+
+    def test_breakpoint_candidates_cover_bruteforce_optimum_and_are_sparse(self, hangzhou_config):
+        calc = TaxCalculator(hangzhou_config)
+        optimizer = TaxOptimizer(calc)
+        total_annual = 2010000
+        brute = brute_force_optimize(calc, total_annual, step=1, objective="cash")
+        salary_bonus_pool = total_annual
+
+        candidates = optimizer._candidate_monthly_salaries(
+            salary_bonus_pool,
+            step=1,
+            extra_income=0.0,
+        )
+
+        assert brute["monthly_salary"] in candidates
+        assert candidates == sorted(set(candidates))
+        assert len(candidates) < brute["_iterations"] / 100
+
+    def test_breakpoint_candidates_snap_around_base_thresholds(self, hangzhou_config):
+        calc = TaxCalculator(hangzhou_config)
+        optimizer = TaxOptimizer(calc)
+        candidates = optimizer._candidate_monthly_salaries(
+            500000,
+            step=1000,
+            extra_income=0.0,
+        )
+
+        assert 2000 in candidates and 3000 in candidates
+        assert 4000 in candidates and 5000 in candidates
+        assert 25000 in candidates and 26000 in candidates
+        assert 40000 in candidates and 41000 in candidates
