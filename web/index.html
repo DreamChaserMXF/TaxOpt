@@ -365,7 +365,7 @@
             </tr>
           </thead>
           <tbody>
-            <!-- 工资薪金（含额外激励） -->
+            <!-- 工资薪金 -->
             <tr class="border-b border-gray-50">
               <td class="py-2">工资薪金</td>
               <td class="py-2 px-3 text-right" x-text="fmt(result.annual_salary) + ' 元'"></td>
@@ -376,7 +376,7 @@
             <!-- 额外激励子行 -->
             <template x-if="result.extra_income > 0">
               <tr class="border-b border-gray-50 bg-amber-50/40 text-xs text-gray-500">
-                <td class="py-1.5 pl-4">↳ 含额外激励</td>
+                <td class="py-1.5 pl-4">↳ 额外激励</td>
                 <td class="py-1.5 px-3 text-right text-amber-600" x-text="fmt(result.extra_income) + ' 元'"></td>
                 <td class="py-1.5 px-3 text-right text-gray-300">—（并入上行）</td>
                 <td class="py-1.5 px-3 text-right text-gray-300">—</td>
