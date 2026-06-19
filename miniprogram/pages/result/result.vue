@@ -180,7 +180,17 @@ export default {
 
     function fmt(v) {
       if (v == null) return '—'
-      return Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 0 })
+      const n = Number(v)
+      if (!Number.isFinite(n)) return '—'
+
+      const rounded = Math.round((n + Number.EPSILON) * 100) / 100
+      const isInteger = Math.abs(rounded - Math.round(rounded)) < 1e-9
+      const raw = isInteger ? String(Math.round(rounded)) : rounded.toFixed(2)
+      const [integerPart, decimalPart] = raw.split('.')
+      const sign = integerPart.startsWith('-') ? '-' : ''
+      const unsignedInteger = sign ? integerPart.slice(1) : integerPart
+      const groupedInteger = unsignedInteger.replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+      return decimalPart ? `${sign}${groupedInteger}.${decimalPart}` : `${sign}${groupedInteger}`
     }
 
     function fmtPct(v) {
@@ -777,17 +787,19 @@ export default {
         sectionTop = drawCard(ctx, 40, y, width - 80, monthlyHeight, '月度明细')
         setText(ctx, { size: 18, color: '#94a3b8' })
         ctx.fillText('月份', 72, sectionTop)
-        drawRightText(ctx, '税前月薪', 360, sectionTop, 18, '#94a3b8')
-        drawRightText(ctx, '税后到手', 560, sectionTop, 18, '#94a3b8')
-        drawRightText(ctx, '个人三险', 740, sectionTop, 18, '#94a3b8')
+        drawRightText(ctx, '税前月薪', 300, sectionTop, 18, '#94a3b8')
+        drawRightText(ctx, '税后到手', 500, sectionTop, 18, '#94a3b8')
+        drawRightText(ctx, '个人三险', 670, sectionTop, 18, '#94a3b8')
+        drawRightText(ctx, '公积金', 850, sectionTop, 18, '#94a3b8')
         drawRightText(ctx, '税额', width - 72, sectionTop, 18, '#94a3b8')
         poster.monthlyRows.forEach((row, index) => {
           const rowTop = sectionTop + 34 + index * 48
           setText(ctx, { size: 20, color: '#334155' })
           ctx.fillText(row.month, 72, rowTop)
-          drawRightText(ctx, row.salary, 360, rowTop, 20, '#334155')
-          drawRightText(ctx, row.take, 560, rowTop, 20, '#16a34a')
-          drawRightText(ctx, row.insurance, 740, rowTop, 20, '#ea580c')
+          drawRightText(ctx, row.salary, 300, rowTop, 20, '#334155')
+          drawRightText(ctx, row.take, 500, rowTop, 20, '#16a34a')
+          drawRightText(ctx, row.insurance, 670, rowTop, 20, '#ea580c')
+          drawRightText(ctx, row.housing, 850, rowTop, 20, '#2563eb')
           drawRightText(ctx, row.tax, width - 72, rowTop, 20, '#dc2626')
         })
         y += monthlyHeight + 32
